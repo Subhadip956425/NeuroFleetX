@@ -6,10 +6,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/vehicles")
 @CrossOrigin(origins = "http://localhost:5173")
+
 public class VehicleController {
 
     private final VehicleService vehicleService;
@@ -18,29 +20,37 @@ public class VehicleController {
         this.vehicleService = vehicleService;
     }
 
-    // ✅ Add vehicle
+    @PreAuthorize("hasAuthority('ADMIN')")
     @PostMapping("/add")
     public ResponseEntity<Vehicle> addVehicle(@RequestBody Vehicle vehicle) {
         return ResponseEntity.ok(vehicleService.addVehicle(vehicle));
     }
 
-    // ✅ Get all vehicles
+    @PreAuthorize("hasAuthority('ADMIN')")
     @GetMapping("/all")
     public ResponseEntity<List<Vehicle>> getAllVehicles() {
         return ResponseEntity.ok(vehicleService.getAllVehicles());
     }
 
-    // ✅ Update vehicle
+    @PreAuthorize("hasAuthority('ADMIN')")
     @PutMapping("/update/{id}")
-    public ResponseEntity<Vehicle> updateVehicle(@PathVariable Long id, @RequestBody Vehicle updatedVehicle) {
-        Vehicle updated = vehicleService.updateVehicle(id, updatedVehicle);
-        return updated != null ? ResponseEntity.ok(updated) : ResponseEntity.notFound().build();
+    public ResponseEntity<?> updateVehicle(@PathVariable("id") Long id, @RequestBody Vehicle updatedVehicle) {
+        try {
+            Vehicle saved = vehicleService.updateVehicle(id, updatedVehicle);
+            return ResponseEntity.ok(saved);
+        } catch (Exception e) {
+            return ResponseEntity.status(404).body("Vehicle not found with id: " + id);
+        }
     }
 
-    // ✅ Delete vehicle
+    @PreAuthorize("hasAuthority('ADMIN')")
     @DeleteMapping("/delete/{id}")
-    public ResponseEntity<Void> deleteVehicle(@PathVariable Long id) {
+    public ResponseEntity<String> deleteVehicle(@PathVariable("id") Long id) {
         boolean deleted = vehicleService.deleteVehicle(id);
-        return deleted ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+        if (deleted) {
+            return ResponseEntity.ok("Vehicle deleted successfully");
+        } else {
+            return ResponseEntity.status(404).body("Vehicle not found for deletion");
+        }
     }
 }

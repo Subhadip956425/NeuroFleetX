@@ -5,6 +5,7 @@ import com.hepsi.demo.repository.VehicleRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class VehicleServiceImpl implements VehicleService {
@@ -27,24 +28,29 @@ public class VehicleServiceImpl implements VehicleService {
 
     @Override
     public Vehicle updateVehicle(Long id, Vehicle updatedVehicle) {
-        return vehicleRepository.findById(id).map(vehicle -> {
-            vehicle.setVehicleNumber(updatedVehicle.getVehicleNumber());
-            vehicle.setType(updatedVehicle.getType());
-            vehicle.setStatus(updatedVehicle.getStatus());
-            vehicle.setBattery(updatedVehicle.getBattery());
-            vehicle.setFuel(updatedVehicle.getFuel());
-            vehicle.setSpeed(updatedVehicle.getSpeed());
-            vehicle.setLocation(updatedVehicle.getLocation());
-            return vehicleRepository.save(vehicle);
-        }).orElse(null);
+        Optional<Vehicle> optionalVehicle = vehicleRepository.findById(id);
+        if (optionalVehicle.isPresent()) {
+            Vehicle existingVehicle = optionalVehicle.get();
+            existingVehicle.setVehicleNumber(updatedVehicle.getVehicleNumber());
+            existingVehicle.setType(updatedVehicle.getType());
+            existingVehicle.setStatus(updatedVehicle.getStatus());
+            existingVehicle.setBattery(updatedVehicle.getBattery());
+            existingVehicle.setFuel(updatedVehicle.getFuel());
+            existingVehicle.setSpeed(updatedVehicle.getSpeed());
+            existingVehicle.setLocation(updatedVehicle.getLocation());
+            return vehicleRepository.save(existingVehicle);
+        } else {
+            return null; // You could throw a custom exception here instead
+        }
     }
 
     @Override
     public boolean deleteVehicle(Long id) {
         if (vehicleRepository.existsById(id)) {
-        vehicleRepository.deleteById(id);
-        return true;
-    }
-    return false;
+            vehicleRepository.deleteById(id);
+            return true;
+        } else {
+            return false;
+        }
     }
 }
