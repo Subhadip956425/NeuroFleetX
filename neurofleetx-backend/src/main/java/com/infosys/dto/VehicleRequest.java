@@ -7,7 +7,7 @@ public class VehicleRequest {
     private String name;
     private Long typeId;
     private Long statusId;
-    private Long assignedDriverId; // optional
+    private Long assignedDriverId;
     private Double batteryLevel;
     private Double fuelLevel;
     private Double speed;

@@ -44,10 +44,8 @@ public class MaintenanceController {
         return ResponseEntity.ok(maintenanceService.updateStatus(id, req.getStatus()));
     }
 
-    // helper - please implement resolving User id from principal (UserRepository)
     private Long resolveUserIdFromPrincipal(UserDetails userDetails) {
-        // naive: find user by email in UserRepository (you have this repo)
-        // implement actual lookup in your code; placeholder here:
+        // find user by email in UserRepository
         // User user = userRepository.findByEmail(userDetails.getUsername()).orElseThrow(...)
         // return user.getId();
         throw new UnsupportedOperationException("Implement resolveUserIdFromPrincipal using UserRepository");

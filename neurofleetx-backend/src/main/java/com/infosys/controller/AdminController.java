@@ -28,7 +28,7 @@ public class AdminController {
         return ResponseEntity.ok(userRepository.findAll());
     }
 
-    // change user's role (single-role replace for simplicity)
+    // change user's role
     @PostMapping("/users/{id}/role")
     public ResponseEntity<?> changeUserRole(@PathVariable Long id, @RequestBody RoleChangeRequest req) {
         User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
