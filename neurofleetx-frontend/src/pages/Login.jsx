@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect, useContext } from "react";
-import { loginUser } from "../api/auth";
+import React, { useState, useRef, useEffect } from "react";
+import authApi from "../api/auth";
 import { useNavigate } from "react-router-dom";
-import { setToken, setUserRole } from "../utils/auth";
+import { useGlobalState, actionTypes } from "../context/GlobalState";
 import {
   motion,
   useMotionValue,
@@ -10,18 +10,16 @@ import {
   useSpring,
   useAnimation,
 } from "framer-motion";
-import { AuthContext } from "../context/AuthContext";
-import { AuthActionTypes } from "../reducers/auth/authActionTypes";
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [form, setForm] = useState({ email: "", password: "" });
   const [focusedField, setFocusedField] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [emailValid, setEmailValid] = useState(null);
+  const [error, setError] = useState("");
 
-  const { state, dispatch } = useContext(AuthContext);
+  const { dispatch } = useGlobalState();
   const navigate = useNavigate();
 
   const mouseX = useMotionValue(0);
@@ -40,7 +38,6 @@ export default function Login() {
         mouseX.set(e.clientX - rect.left);
         mouseY.set(e.clientY - rect.top);
 
-        // Card tilt effect based on mouse position
         const rotateX = ((e.clientY - centerY) / rect.height) * 5;
         const rotateY = ((e.clientX - centerX) / rect.width) * 5;
 
@@ -71,43 +68,68 @@ export default function Login() {
 
   // Email validation
   useEffect(() => {
-    if (email) {
-      const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (form.email) {
+      const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email);
       setEmailValid(isValid);
     } else {
       setEmailValid(null);
     }
-  }, [email]);
+  }, [form.email]);
 
-  // Backend Login
-  const handleSubmit = async (e) => {
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+    if (error) setError("");
+  };
+
+  // Role-based login using email
+  const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setError("");
+
+    console.log("🔐 Login attempt:", form.email);
 
     try {
-      const res = await loginUser({ email, password });
-      const { token, roles } = res.data;
-      setToken(token);
-      setUserRole(roles[0]);
+      const res = await authApi.login(form.email, form.password);
+      console.log("✅ Login response:", res.data);
 
-      dispatch({
-        type: AuthActionTypes.LOGIN_SUCCESS,
-        payload: { token, role: roles[0] },
-      });
+      // Extract role
+      const role = res.data.roles[0]; // "ROLE_ADMIN"
 
-      // Success animation before redirect
+      // Store in localStorage
+      localStorage.setItem("jwtToken", res.data.token);
+      localStorage.setItem("role", role);
+      localStorage.setItem("userId", res.data.id);
+
+      // ⚠️ IMPORTANT: Store the full user object with roles array
+      const userData = {
+        username: res.data.username,
+        roles: res.data.roles, // Keep as array
+        token: res.data.token,
+        type: res.data.type,
+      };
+
+      // Update global state
+      dispatch({ type: actionTypes.SET_USER, payload: userData });
+
+      console.log("💾 Stored user data:", userData);
+
+      // Success animation
       await cardControls.start({
         scale: 1.05,
         opacity: 0.8,
         transition: { duration: 0.3 },
       });
 
-      navigate("/dashboard");
+      // Navigate to /dashboard (not role-specific routes)
+      console.log("🚀 Navigating to /dashboard");
+
+      setTimeout(() => {
+        navigate("/dashboard", { replace: true });
+      }, 400);
     } catch (err) {
-      dispatch({
-        type: AuthActionTypes.SET_ERROR,
-        payload: err.response?.data?.message || "Login failed",
-      });
+      console.error("❌ Login error:", err);
+      setError(err.response?.data?.message || "Invalid credentials");
 
       // Shake animation on error
       cardControls.start({
@@ -254,9 +276,6 @@ export default function Login() {
       scale: 0.97,
       boxShadow: "0 5px 15px rgba(59, 130, 246, 0.4)",
     },
-    loading: {
-      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    },
   };
 
   return (
@@ -346,7 +365,7 @@ export default function Login() {
           perspective: "1000px",
         }}
       >
-        {/* Animated title with stagger effect */}
+        {/* Animated title */}
         <motion.div className="text-center mb-8">
           <div className="flex justify-center items-center mb-3">
             {["N", "e", "u", "r", "o", "F", "l", "e", "e", "t", "X"].map(
@@ -391,14 +410,8 @@ export default function Login() {
             className="h-0.5 bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 mx-auto mt-4 rounded-full relative"
           >
             <motion.div
-              animate={{
-                x: ["-100%", "100%"],
-              }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                ease: "linear",
-              }}
+              animate={{ x: ["-100%", "100%"] }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent"
               style={{ width: "50%" }}
             />
@@ -407,44 +420,34 @@ export default function Login() {
 
         {/* Enhanced error message */}
         <AnimatePresence mode="wait">
-          {state.error && (
+          {error && (
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: -20 }}
-              animate={{
-                opacity: 1,
-                scale: 1,
-                y: 0,
-              }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: -20 }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
               className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/30 backdrop-blur-sm"
             >
               <motion.div
                 initial={{ rotate: 0 }}
-                animate={{
-                  rotate: [0, -5, 5, -5, 5, 0],
-                }}
+                animate={{ rotate: [0, -5, 5, -5, 5, 0] }}
                 transition={{ duration: 0.5, delay: 0.1 }}
                 className="flex items-center gap-3"
               >
                 <motion.span
-                  animate={{
-                    scale: [1, 1.2, 1],
-                  }}
+                  animate={{ scale: [1, 1.2, 1] }}
                   transition={{ duration: 0.3, repeat: 2 }}
                   className="text-2xl"
                 >
                   ⚠️
                 </motion.span>
                 <span className="text-red-400 font-semibold flex-1">
-                  {state.error}
+                  {error}
                 </span>
                 <motion.button
                   whileHover={{ scale: 1.1, rotate: 90 }}
                   whileTap={{ scale: 0.9 }}
-                  onClick={() =>
-                    dispatch({ type: AuthActionTypes.CLEAR_ERROR })
-                  }
+                  onClick={() => setError("")}
                   className="text-red-400 hover:text-red-300 transition-colors"
                 >
                   ✕
@@ -454,7 +457,7 @@ export default function Login() {
           )}
         </AnimatePresence>
 
-        <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
+        <form onSubmit={handleLogin} className="space-y-5 relative z-10">
           {/* Enhanced email input */}
           <motion.div
             initial={{ x: -60, opacity: 0 }}
@@ -470,10 +473,11 @@ export default function Login() {
             >
               <motion.input
                 type="email"
+                name="email"
                 placeholder="Enter your email"
                 className="w-full p-4 pl-12 pr-12 bg-white/10 backdrop-blur-sm text-white border border-white/20 rounded-2xl focus:outline-none placeholder-white/50 transition-all duration-300"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={form.email}
+                onChange={handleChange}
                 onFocus={() => setFocusedField("email")}
                 onBlur={() => setFocusedField(null)}
                 required
@@ -539,10 +543,11 @@ export default function Login() {
             >
               <motion.input
                 type={showPassword ? "text" : "password"}
+                name="password"
                 placeholder="Enter your password"
                 className="w-full p-4 pl-12 pr-12 bg-white/10 backdrop-blur-sm text-white border border-white/20 rounded-2xl focus:outline-none placeholder-white/50 transition-all duration-300"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                value={form.password}
+                onChange={handleChange}
                 onFocus={() => setFocusedField("password")}
                 onBlur={() => setFocusedField(null)}
                 required
@@ -568,45 +573,7 @@ export default function Login() {
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white/90 transition-colors focus:outline-none"
               >
-                <motion.svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="w-5 h-5"
-                  animate={showPassword ? { opacity: 0 } : { opacity: 1 }}
-                  transition={{ duration: 0.2 }}
-                  style={{ position: showPassword ? "absolute" : "relative" }}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </motion.svg>
-                <motion.svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="w-5 h-5"
-                  animate={showPassword ? { opacity: 1 } : { opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  style={{ position: showPassword ? "relative" : "absolute" }}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"
-                  />
-                </motion.svg>
+                {showPassword ? "👁️" : "👁️‍🗨️"}
               </motion.button>
             </motion.div>
 
@@ -633,7 +600,6 @@ export default function Login() {
             variants={buttonVariants}
             whileHover="hover"
             whileTap="tap"
-            animate={isLoading ? "loading" : "idle"}
             type="submit"
             disabled={isLoading}
             className="w-full py-4 rounded-2xl font-bold text-white relative overflow-hidden transition-all duration-300"
@@ -645,9 +611,7 @@ export default function Login() {
             {/* Button shimmer effect */}
             <motion.div
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
-              animate={{
-                x: ["-100%", "200%"],
-              }}
+              animate={{ x: ["-100%", "200%"] }}
               transition={{
                 duration: 2,
                 repeat: Infinity,
@@ -686,73 +650,6 @@ export default function Login() {
                   className="flex items-center justify-center gap-2"
                 >
                   <span>Login to Dashboard</span>
-                  <motion.span
-                    animate={{ x: [0, 5, 0] }}
-                    transition={{ duration: 1, repeat: Infinity }}
-                  >
-                    →
-                  </motion.span>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.button>
-
-          <motion.button
-            type="submit"
-            disabled={isLoading}
-            variants={buttonVariants}
-            initial="idle"
-            whileHover="hover"
-            whileTap="tap"
-            animate={isLoading ? "loading" : "idle"}
-            className="w-full py-4 rounded-2xl font-bold text-white relative overflow-hidden transition-all duration-300"
-            style={{
-              background:
-                "linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #06b6d4 100%)",
-            }}
-          >
-            {/* Button shimmer effect */}
-            <motion.div
-              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
-              animate={{ x: ["-100%", "200%"] }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                repeatDelay: 1,
-                ease: "linear",
-              }}
-            />
-
-            {/* Button content */}
-            <AnimatePresence mode="wait">
-              {isLoading ? (
-                <motion.div
-                  key="loading"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  className="flex items-center justify-center gap-3"
-                >
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{
-                      duration: 1,
-                      repeat: Infinity,
-                      ease: "linear",
-                    }}
-                    className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
-                  />
-                  <span>Signing In...</span>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="sign-in"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  className="flex items-center justify-center gap-2"
-                >
-                  <span>Sign In</span>
                   <motion.span
                     animate={{ x: [0, 5, 0] }}
                     transition={{ duration: 1, repeat: Infinity }}
@@ -819,9 +716,7 @@ export default function Login() {
               {/* Shimmer effect */}
               <motion.div
                 className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
-                animate={{
-                  x: ["-100%", "200%"],
-                }}
+                animate={{ x: ["-100%", "200%"] }}
                 transition={{
                   duration: 2.5,
                   repeat: Infinity,
@@ -877,32 +772,6 @@ export default function Login() {
               delay: 1,
             }}
             className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2 w-56 h-10 bg-gradient-to-r from-cyan-400/30 via-blue-400/30 to-purple-400/30 blur-3xl rounded-full"
-          />
-
-          <motion.div
-            animate={{
-              x: [-20, 20, -20],
-              opacity: [0.2, 0.4, 0.2],
-            }}
-            transition={{
-              duration: 6,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-            className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-32 h-32 bg-blue-400/20 blur-3xl rounded-full"
-          />
-          <motion.div
-            animate={{
-              x: [20, -20, 20],
-              opacity: [0.2, 0.4, 0.2],
-            }}
-            transition={{
-              duration: 6,
-              repeat: Infinity,
-              ease: "easeInOut",
-              delay: 2,
-            }}
-            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-32 h-32 bg-purple-400/20 blur-3xl rounded-full"
           />
         </div>
 

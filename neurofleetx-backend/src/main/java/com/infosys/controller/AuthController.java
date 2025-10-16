@@ -53,6 +53,6 @@ public class AuthController {
                 .map(auth -> auth.getAuthority())
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(new JwtResponse(jwt, "Bearer", userDetails.getUsername(), roles));
+        return ResponseEntity.ok(new JwtResponse(jwt, "Bearer", userDetails.getUsername(), userDetails.getId(), roles));
     }
 }

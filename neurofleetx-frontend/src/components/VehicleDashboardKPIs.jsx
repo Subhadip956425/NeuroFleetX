@@ -1,607 +1,414 @@
-import React, { useEffect, useReducer, useState, useRef } from "react";
-import { fetchVehicles } from "../api/vehicleApi";
-import { connectWebSocket, disconnectWebSocket } from "../api/wsClient";
+import React, { useEffect, useState } from "react";
+import { useGlobalState } from "../context/GlobalState";
+import { motion } from "framer-motion";
 import {
-  vehicleReducer,
-  initialVehicleState,
-} from "../reducers/Vehicle/vehicleReducer";
-import { VehicleActionTypes } from "../reducers/Vehicle/vehicleActionTypes";
-import {
-  PieChart,
-  Pie,
-  Cell,
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
   Tooltip,
   Legend,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
-} from "recharts";
-import { motion, useMotionValue, useTransform } from "framer-motion";
+  Filler,
+} from "chart.js";
+import { Line, Bar, Doughnut } from "react-chartjs-2";
 
-export default function VehicleDashboardKPIs() {
-  const [state, dispatch] = useReducer(vehicleReducer, initialVehicleState);
-  const [batteryHistory, setBatteryHistory] = useState([]);
-  const [fuelHistory, setFuelHistory] = useState([]);
-  const [hoveredCard, setHoveredCard] = useState(null);
-  const canvasRef = useRef(null);
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
 
-  const mouseX = useMotionValue(0);
-  const mouseY = useMotionValue(0);
+const VehicleDashboardKPIs = () => {
+  const { state } = useGlobalState();
+  const [kpiData, setKpiData] = useState(null);
 
-  const COLORS = ["#10b981", "#f59e0b", "#ef4444"];
-  const CHART_COLORS = {
-    battery: "#10b981",
-    fuel: "#3b82f6",
-    speed: "#8b5cf6",
-    available: "#10b981",
-    inUse: "#f59e0b",
-    maintenance: "#ef4444",
-  };
-
-  // Particle animation
+  // Calculate KPIs from vehicles in global state
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    console.log("📊 Calculating KPIs from vehicles:", state.vehicles);
 
-    const ctx = canvas.getContext("2d");
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    const particles = [];
-    const particleCount = 40;
-
-    class Particle {
-      constructor() {
-        this.x = Math.random() * canvas.width;
-        this.y = Math.random() * canvas.height;
-        this.vx = (Math.random() - 0.5) * 0.5;
-        this.vy = (Math.random() - 0.5) * 0.5;
-        this.radius = Math.random() * 2 + 1;
-        this.opacity = Math.random() * 0.5 + 0.2;
-      }
-
-      update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
-        if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
-      }
-
-      draw() {
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(59, 130, 246, ${this.opacity})`;
-        ctx.fill();
-      }
+    if (!state.vehicles || state.vehicles.length === 0) {
+      console.warn("⚠️ No vehicles available for analytics");
+      return;
     }
 
-    for (let i = 0; i < particleCount; i++) {
-      particles.push(new Particle());
-    }
+    const vehicles = state.vehicles;
 
-    function animate() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      particles.forEach((particle) => {
-        particle.update();
-        particle.draw();
-      });
+    // Calculate real-time statistics
+    const totalVehicles = vehicles.length;
+    const activeVehicles = vehicles.filter((v) => v.status === "In Use").length;
+    const availableVehicles = vehicles.filter(
+      (v) => v.status === "Available"
+    ).length;
+    const maintenanceVehicles = vehicles.filter(
+      (v) => v.status === "Needs Maintenance"
+    ).length;
 
-      particles.forEach((p1, i) => {
-        particles.slice(i + 1).forEach((p2) => {
-          const dx = p1.x - p2.x;
-          const dy = p1.y - p2.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-
-          if (distance < 150) {
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(59, 130, 246, ${
-              0.15 * (1 - distance / 150)
-            })`;
-            ctx.lineWidth = 1;
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.stroke();
-          }
-        });
-      });
-
-      requestAnimationFrame(animate);
-    }
-
-    animate();
-
-    const handleResize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Mouse tracking
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      mouseX.set(e.clientX);
-      mouseY.set(e.clientY);
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, [mouseX, mouseY]);
-
-  const backgroundX = useTransform(mouseX, [0, window.innerWidth], [0, 100]);
-  const backgroundY = useTransform(mouseY, [0, window.innerHeight], [0, 100]);
-
-  useEffect(() => {
-    fetchVehicles().then((data) => {
-      dispatch({ type: VehicleActionTypes.SET_VEHICLES, payload: data });
-      updateHistory(data);
-    });
-
-    const ws = connectWebSocket((vehicle) => {
-      dispatch({ type: VehicleActionTypes.UPDATE_VEHICLE, payload: vehicle });
-      updateHistory(state.allVehicles);
-    });
-
-    return () => disconnectWebSocket();
-  }, []);
-
-  const updateHistory = (vehicles) => {
+    // Calculate averages
     const avgBattery =
-      vehicles.length > 0
-        ? vehicles.reduce((sum, v) => sum + v.batteryLevel, 0) / vehicles.length
-        : 0;
-    const avgFuel =
-      vehicles.length > 0
-        ? vehicles.reduce((sum, v) => sum + v.fuelLevel, 0) / vehicles.length
+      totalVehicles > 0
+        ? (
+            vehicles.reduce((sum, v) => sum + (v.batteryLevel || 0), 0) /
+            totalVehicles
+          ).toFixed(1)
         : 0;
 
-    setBatteryHistory((prev) => [
-      ...prev.slice(-9),
-      {
-        time: new Date().toLocaleTimeString(),
-        battery: avgBattery.toFixed(1),
-        fuel: avgFuel.toFixed(1),
+    const avgFuel =
+      totalVehicles > 0
+        ? (
+            vehicles.reduce((sum, v) => sum + (v.fuelLevel || 0), 0) /
+            totalVehicles
+          ).toFixed(1)
+        : 0;
+
+    const avgSpeed =
+      totalVehicles > 0
+        ? (
+            vehicles.reduce((sum, v) => sum + (v.speed || 0), 0) / totalVehicles
+          ).toFixed(1)
+        : 0;
+
+    // Calculate efficiency score (based on battery and fuel levels)
+    const efficiencyScore =
+      totalVehicles > 0
+        ? (
+            ((parseFloat(avgBattery) + parseFloat(avgFuel)) / 200) *
+            100
+          ).toFixed(1)
+        : 0;
+
+    // Status distribution for pie chart
+    const statusDistribution = {
+      available: availableVehicles,
+      inUse: activeVehicles,
+      maintenance: maintenanceVehicles,
+    };
+
+    // Vehicle types distribution
+    const typeDistribution = vehicles.reduce((acc, vehicle) => {
+      const type = vehicle.type || "Unknown";
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Battery levels distribution
+    const batteryRanges = {
+      low: vehicles.filter((v) => v.batteryLevel < 30).length,
+      medium: vehicles.filter(
+        (v) => v.batteryLevel >= 30 && v.batteryLevel < 70
+      ).length,
+      high: vehicles.filter((v) => v.batteryLevel >= 70).length,
+    };
+
+    // Fuel levels distribution
+    const fuelRanges = {
+      low: vehicles.filter((v) => v.fuelLevel < 30).length,
+      medium: vehicles.filter((v) => v.fuelLevel >= 30 && v.fuelLevel < 70)
+        .length,
+      high: vehicles.filter((v) => v.fuelLevel >= 70).length,
+    };
+
+    const calculatedData = {
+      summary: {
+        totalVehicles,
+        activeVehicles,
+        availableVehicles,
+        maintenanceVehicles,
+        avgBattery,
+        avgFuel,
+        avgSpeed,
+        efficiencyScore,
       },
-    ]);
+      statusDistribution,
+      typeDistribution,
+      batteryRanges,
+      fuelRanges,
+    };
+
+    console.log("✅ KPI data calculated:", calculatedData);
+    setKpiData(calculatedData);
+  }, [state.vehicles]); // Re-calculate when vehicles change
+
+  if (!kpiData) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-900">
+        <div className="text-white text-xl">Loading analytics...</div>
+      </div>
+    );
+  }
+
+  // Chart configurations
+  const statusChartData = {
+    labels: ["Available", "In Use", "Maintenance"],
+    datasets: [
+      {
+        label: "Vehicle Status",
+        data: [
+          kpiData.statusDistribution.available,
+          kpiData.statusDistribution.inUse,
+          kpiData.statusDistribution.maintenance,
+        ],
+        backgroundColor: [
+          "rgba(16, 185, 129, 0.8)",
+          "rgba(59, 130, 246, 0.8)",
+          "rgba(239, 68, 68, 0.8)",
+        ],
+        borderColor: [
+          "rgba(16, 185, 129, 1)",
+          "rgba(59, 130, 246, 1)",
+          "rgba(239, 68, 68, 1)",
+        ],
+        borderWidth: 2,
+      },
+    ],
   };
 
-  const totalVehicles = state.allVehicles.length;
-  const statusCounts = state.allVehicles.reduce(
-    (acc, v) => {
-      if (v.status === "Available") acc.available++;
-      else if (v.status === "In Use") acc.inUse++;
-      else acc.needsMaintenance++;
-      return acc;
-    },
-    { available: 0, inUse: 0, needsMaintenance: 0 }
-  );
-
-  const pieData = [
-    {
-      name: "Available",
-      value: statusCounts.available,
-      color: CHART_COLORS.available,
-    },
-    { name: "In Use", value: statusCounts.inUse, color: CHART_COLORS.inUse },
-    {
-      name: "Maintenance",
-      value: statusCounts.needsMaintenance,
-      color: CHART_COLORS.maintenance,
-    },
-  ];
-
-  const avgBattery =
-    state.allVehicles.length > 0
-      ? (
-          state.allVehicles.reduce((sum, v) => sum + v.batteryLevel, 0) /
-          state.allVehicles.length
-        ).toFixed(1)
-      : 0;
-
-  const avgFuel =
-    state.allVehicles.length > 0
-      ? (
-          state.allVehicles.reduce((sum, v) => sum + v.fuelLevel, 0) /
-          state.allVehicles.length
-        ).toFixed(1)
-      : 0;
-
-  const kpiCards = [
-    {
-      id: 1,
-      title: "Total Fleet",
-      value: totalVehicles,
-      icon: "🚗",
-      color: "from-blue-500 to-cyan-500",
-      bg: "from-blue-500/20 to-cyan-500/10",
-      change: "+3",
-      trend: "up",
-    },
-    {
-      id: 2,
-      title: "Available",
-      value: statusCounts.available,
-      icon: "✓",
-      color: "from-green-500 to-emerald-500",
-      bg: "from-green-500/20 to-emerald-500/10",
-      change: "+2",
-      trend: "up",
-    },
-    {
-      id: 3,
-      title: "In Use",
-      value: statusCounts.inUse,
-      icon: "⚡",
-      color: "from-yellow-500 to-orange-500",
-      bg: "from-yellow-500/20 to-orange-500/10",
-      change: "+5",
-      trend: "up",
-    },
-    {
-      id: 4,
-      title: "Maintenance",
-      value: statusCounts.needsMaintenance,
-      icon: "🔧",
-      color: "from-red-500 to-pink-500",
-      bg: "from-red-500/20 to-pink-500/10",
-      change: "-1",
-      trend: "down",
-    },
-  ];
-
-  const cardVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: (i) => ({
-      opacity: 1,
-      y: 0,
-      transition: {
-        delay: i * 0.1,
-        type: "spring",
-        stiffness: 300,
-        damping: 25,
+  const batteryChartData = {
+    labels: ["Low (<30%)", "Medium (30-70%)", "High (>70%)"],
+    datasets: [
+      {
+        label: "Battery Levels",
+        data: [
+          kpiData.batteryRanges.low,
+          kpiData.batteryRanges.medium,
+          kpiData.batteryRanges.high,
+        ],
+        backgroundColor: [
+          "rgba(239, 68, 68, 0.8)",
+          "rgba(251, 191, 36, 0.8)",
+          "rgba(16, 185, 129, 0.8)",
+        ],
+        borderColor: [
+          "rgba(239, 68, 68, 1)",
+          "rgba(251, 191, 36, 1)",
+          "rgba(16, 185, 129, 1)",
+        ],
+        borderWidth: 2,
       },
-    }),
-    hover: {
-      y: -10,
-      scale: 1.02,
-      transition: {
-        type: "spring",
-        stiffness: 400,
-        damping: 20,
+    ],
+  };
+
+  const fuelChartData = {
+    labels: ["Low (<30%)", "Medium (30-70%)", "High (>70%)"],
+    datasets: [
+      {
+        label: "Fuel Levels",
+        data: [
+          kpiData.fuelRanges.low,
+          kpiData.fuelRanges.medium,
+          kpiData.fuelRanges.high,
+        ],
+        backgroundColor: "rgba(59, 130, 246, 0.8)",
+        borderColor: "rgba(59, 130, 246, 1)",
+        borderWidth: 2,
+      },
+    ],
+  };
+
+  const typeChartData = {
+    labels: Object.keys(kpiData.typeDistribution),
+    datasets: [
+      {
+        label: "Vehicle Types",
+        data: Object.values(kpiData.typeDistribution),
+        backgroundColor: "rgba(147, 51, 234, 0.8)",
+        borderColor: "rgba(147, 51, 234, 1)",
+        borderWidth: 2,
+      },
+    ],
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: {
+          color: "rgba(255, 255, 255, 0.8)",
+          font: { size: 12 },
+        },
+      },
+    },
+    scales: {
+      y: {
+        ticks: { color: "rgba(255, 255, 255, 0.6)" },
+        grid: { color: "rgba(255, 255, 255, 0.1)" },
+      },
+      x: {
+        ticks: { color: "rgba(255, 255, 255, 0.6)" },
+        grid: { color: "rgba(255, 255, 255, 0.1)" },
+      },
+    },
+  };
+
+  const pieOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: "bottom",
+        labels: {
+          color: "rgba(255, 255, 255, 0.8)",
+          font: { size: 12 },
+        },
       },
     },
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden">
-      {/* Animated Canvas Background */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 pointer-events-none"
-        style={{ zIndex: 0 }}
-      />
-
-      {/* Animated Mesh Gradient Background */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: `
-            radial-gradient(circle at ${backgroundX}% ${backgroundY}%, 
-              rgba(59, 130, 246, 0.2) 0%, 
-              transparent 50%),
-            radial-gradient(circle at ${100 - backgroundX}% ${
-            100 - backgroundY
-          }%, 
-              rgba(147, 51, 234, 0.2) 0%, 
-              transparent 50%),
-            radial-gradient(circle at 50% 50%, 
-              rgba(16, 185, 129, 0.15) 0%, 
-              transparent 50%),
-            linear-gradient(135deg, 
-              rgba(15, 23, 42, 0.98) 0%, 
-              rgba(30, 41, 59, 0.95) 50%, 
-              rgba(15, 23, 42, 0.98) 100%)
-          `,
-          zIndex: 1,
-        }}
-      />
-
-      {/* Floating orbs */}
-      <div
-        className="absolute inset-0 pointer-events-none overflow-hidden"
-        style={{ zIndex: 2 }}
-      >
-        <motion.div
-          animate={{
-            scale: [1, 1.3, 1],
-            opacity: [0.15, 0.3, 0.15],
-            rotate: [0, 180, 360],
-          }}
-          transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -top-1/4 -left-1/4 w-1/2 h-1/2 bg-gradient-to-br from-blue-500/30 to-purple-500/30 rounded-full blur-3xl"
-        />
-        <motion.div
-          animate={{
-            scale: [1.3, 1, 1.3],
-            opacity: [0.2, 0.35, 0.2],
-            rotate: [360, 180, 0],
-          }}
-          transition={{ duration: 30, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -bottom-1/4 -right-1/4 w-1/2 h-1/2 bg-gradient-to-tl from-emerald-500/30 to-cyan-500/30 rounded-full blur-3xl"
-        />
+    <div className="space-y-6">
+      {/* KPI Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          {
+            title: "Total Vehicles",
+            value: kpiData.summary.totalVehicles,
+            icon: "🚗",
+            color: "from-blue-500 to-cyan-500",
+          },
+          {
+            title: "Active Now",
+            value: kpiData.summary.activeVehicles,
+            icon: "✅",
+            color: "from-green-500 to-emerald-500",
+          },
+          {
+            title: "Avg Battery",
+            value: `${kpiData.summary.avgBattery}%`,
+            icon: "🔋",
+            color: "from-yellow-500 to-orange-500",
+          },
+          {
+            title: "Efficiency",
+            value: `${kpiData.summary.efficiencyScore}%`,
+            icon: "⚡",
+            color: "from-purple-500 to-pink-500",
+          },
+        ].map((stat, index) => (
+          <motion.div
+            key={stat.title}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 * index }}
+            className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-3xl">{stat.icon}</span>
+              <div
+                className={`w-12 h-12 rounded-full bg-gradient-to-br ${stat.color} opacity-20`}
+              />
+            </div>
+            <h3 className="text-3xl font-black text-white mb-1">
+              {stat.value}
+            </h3>
+            <p className="text-white/60 text-sm font-semibold">{stat.title}</p>
+          </motion.div>
+        ))}
       </div>
 
-      <div className="relative z-10 max-w-7xl mx-auto p-6 space-y-6">
-        {/* Header */}
+      {/* Charts Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Status Distribution */}
         <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6"
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-emerald-400">
-                Fleet Analytics
-              </h1>
-              <p className="text-white/60 text-sm mt-1">
-                Real-time performance metrics and insights
-              </p>
-            </div>
-            <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-white/5 border border-white/10">
-              <motion.div
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="w-2 h-2 bg-green-400 rounded-full"
-              />
-              <span className="text-white/70 text-sm font-semibold">Live</span>
-            </div>
+          <h3 className="text-xl font-bold text-white mb-4">Vehicle Status</h3>
+          <div style={{ height: "300px" }}>
+            <Doughnut data={statusChartData} options={pieOptions} />
           </div>
         </motion.div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {kpiCards.map((card, index) => (
-            <motion.div
-              key={card.id}
-              custom={index}
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-              whileHover="hover"
-              onHoverStart={() => setHoveredCard(card.id)}
-              onHoverEnd={() => setHoveredCard(null)}
-              className="relative group cursor-pointer"
-            >
-              <motion.div
-                className={`absolute inset-0 bg-gradient-to-br ${card.bg} rounded-2xl blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`}
-                animate={
-                  hoveredCard === card.id
-                    ? { scale: [1, 1.1, 1], opacity: [0.5, 0.8, 0.5] }
-                    : {}
-                }
-                transition={{ duration: 2, repeat: Infinity }}
-              />
+        {/* Battery Levels */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.1 }}
+          className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6"
+        >
+          <h3 className="text-xl font-bold text-white mb-4">Battery Levels</h3>
+          <div style={{ height: "300px" }}>
+            <Doughnut data={batteryChartData} options={pieOptions} />
+          </div>
+        </motion.div>
 
-              <div className="relative backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all duration-300">
-                <div className="flex items-start justify-between mb-4">
-                  <motion.div
-                    whileHover={{ scale: 1.2, rotate: 10 }}
-                    className="text-4xl"
-                  >
-                    {card.icon}
-                  </motion.div>
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ delay: 0.5 + index * 0.1 }}
-                    className={`px-2 py-1 rounded-lg text-xs font-semibold ${
-                      card.trend === "up"
-                        ? "bg-emerald-500/20 text-emerald-400"
-                        : "bg-red-500/20 text-red-400"
-                    }`}
-                  >
-                    {card.change}
-                  </motion.div>
-                </div>
-                <motion.h3
-                  className="text-4xl font-black text-white mb-1"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.4 + index * 0.1 }}
-                >
-                  {card.value}
-                </motion.h3>
-                <p className="text-white/60 text-sm font-semibold">
-                  {card.title}
-                </p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+        {/* Fuel Levels */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.2 }}
+          className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6"
+        >
+          <h3 className="text-xl font-bold text-white mb-4">
+            Fuel Distribution
+          </h3>
+          <div style={{ height: "300px" }}>
+            <Bar data={fuelChartData} options={chartOptions} />
+          </div>
+        </motion.div>
 
-        {/* Charts Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Pie Chart */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6 hover:border-white/20 transition-all"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                  <span>📊</span>
-                  Fleet Distribution
-                </h3>
-                <p className="text-white/60 text-sm mt-1">
-                  Vehicle status breakdown
-                </p>
-              </div>
-            </div>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  label={(entry) => `${entry.name}: ${entry.value}`}
-                  labelLine={false}
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    background: "rgba(15, 23, 42, 0.9)",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    borderRadius: "12px",
-                    color: "#fff",
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </motion.div>
-
-          {/* Line Chart */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-            className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6 hover:border-white/20 transition-all"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                  <span>📈</span>
-                  Resource Trends
-                </h3>
-                <p className="text-white/60 text-sm mt-1">
-                  Battery & fuel levels over time
-                </p>
-              </div>
-            </div>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={batteryHistory}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.1)"
-                />
-                <XAxis
-                  dataKey="time"
-                  stroke="rgba(255,255,255,0.5)"
-                  style={{ fontSize: "12px" }}
-                />
-                <YAxis
-                  stroke="rgba(255,255,255,0.5)"
-                  style={{ fontSize: "12px" }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: "rgba(15, 23, 42, 0.9)",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    borderRadius: "12px",
-                    color: "#fff",
-                  }}
-                />
-                <Legend wrapperStyle={{ color: "#fff" }} />
-                <Line
-                  type="monotone"
-                  dataKey="battery"
-                  stroke={CHART_COLORS.battery}
-                  strokeWidth={3}
-                  dot={{ fill: CHART_COLORS.battery, r: 4 }}
-                  name="Avg Battery %"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="fuel"
-                  stroke={CHART_COLORS.fuel}
-                  strokeWidth={3}
-                  dot={{ fill: CHART_COLORS.fuel, r: 4 }}
-                  name="Avg Fuel %"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </motion.div>
-        </div>
-
-        {/* Additional Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6 }}
-            className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6 hover:border-white/20 transition-all"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-3xl">
-                🔋
-              </div>
-              <div>
-                <p className="text-white/60 text-sm font-semibold">
-                  Avg Battery
-                </p>
-                <h3 className="text-3xl font-black text-white">
-                  {avgBattery}%
-                </h3>
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.7 }}
-            className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6 hover:border-white/20 transition-all"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-3xl">
-                ⛽
-              </div>
-              <div>
-                <p className="text-white/60 text-sm font-semibold">Avg Fuel</p>
-                <h3 className="text-3xl font-black text-white">{avgFuel}%</h3>
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.8 }}
-            className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6 hover:border-white/20 transition-all"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-3xl">
-                ⚡
-              </div>
-              <div>
-                <p className="text-white/60 text-sm font-semibold">
-                  Efficiency
-                </p>
-                <h3 className="text-3xl font-black text-white">92%</h3>
-              </div>
-            </div>
-          </motion.div>
-        </div>
+        {/* Vehicle Types */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.3 }}
+          className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6"
+        >
+          <h3 className="text-xl font-bold text-white mb-4">Vehicle Types</h3>
+          <div style={{ height: "300px" }}>
+            <Bar data={typeChartData} options={chartOptions} />
+          </div>
+        </motion.div>
       </div>
+
+      {/* Additional Stats */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6"
+      >
+        <h3 className="text-xl font-bold text-white mb-4">Fleet Overview</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="text-center">
+            <p className="text-white/60 text-sm mb-1">Available</p>
+            <p className="text-2xl font-bold text-green-400">
+              {kpiData.summary.availableVehicles}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-white/60 text-sm mb-1">Maintenance</p>
+            <p className="text-2xl font-bold text-red-400">
+              {kpiData.summary.maintenanceVehicles}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-white/60 text-sm mb-1">Avg Speed</p>
+            <p className="text-2xl font-bold text-blue-400">
+              {kpiData.summary.avgSpeed} km/h
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-white/60 text-sm mb-1">Avg Fuel</p>
+            <p className="text-2xl font-bold text-orange-400">
+              {kpiData.summary.avgFuel}%
+            </p>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
-}
+};
+
+export default VehicleDashboardKPIs;

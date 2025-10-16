@@ -17,6 +17,9 @@ public class BookingServiceImpl implements BookingService {
     @Override
     public Booking createBooking(Booking booking) {
         booking.setStatus("BOOKED");
+        if (booking.getStartTime() == null || booking.getEndTime() == null) {
+            throw new IllegalArgumentException("Start time and end time are required");
+        }
         return bookingRepo.save(booking);
     }
 

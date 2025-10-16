@@ -1,5 +1,11 @@
 import { AuthActionTypes } from "./authActionTypes";
 
+export const initialAuthState = {
+  token: localStorage.getItem("jwtToken") || "",
+  role: localStorage.getItem("role") || "",
+  error: "",
+};
+
 export const authReducer = (state, action) => {
   switch (action.type) {
     case AuthActionTypes.LOGIN_SUCCESS:
@@ -23,10 +29,4 @@ export const authReducer = (state, action) => {
     default:
       return state;
   }
-};
-
-export const initialAuthState = {
-  token: localStorage.getItem("token") || "",
-  role: localStorage.getItem("role") || "",
-  error: "",
 };

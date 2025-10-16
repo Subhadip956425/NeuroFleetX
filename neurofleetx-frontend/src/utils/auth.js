@@ -1,6 +1,22 @@
-export const setToken = (token) => localStorage.setItem("token", token);
-export const getToken = () => localStorage.getItem("token");
-export const removeToken = () => localStorage.removeItem("token");
+export const getToken = () => {
+  return localStorage.getItem("jwtToken");
+};
 
-export const setUserRole = (role) => localStorage.setItem("role", role);
-export const getUserRole = () => localStorage.getItem("role");
+export const getUserRole = () => {
+  const role = localStorage.getItem("role");
+  // Return role without ROLE_ prefix for comparison
+  return role ? role.replace("ROLE_", "") : null;
+};
+
+export const setToken = (token) => {
+  localStorage.setItem("jwtToken", token);
+};
+
+export const setUserRole = (role) => {
+  localStorage.setItem("role", role);
+};
+
+export const clearAuth = () => {
+  localStorage.removeItem("jwtToken");
+  localStorage.removeItem("role");
+};

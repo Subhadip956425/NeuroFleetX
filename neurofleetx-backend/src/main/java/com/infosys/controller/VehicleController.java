@@ -52,4 +52,16 @@ public class VehicleController {
     public ResponseEntity<List<VehicleResponse>> listVehicles() {
         return ResponseEntity.ok(vehicleService.listVehicles());
     }
+
+    // Customer can view available vehicles
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @GetMapping("/available")
+    public ResponseEntity<List<VehicleResponse>> getAvailableVehicles() {
+        List<VehicleResponse> available = vehicleService.listVehicles()
+                .stream()
+                .filter(v -> "Available".equalsIgnoreCase(v.getStatus()))
+                .toList();
+        return ResponseEntity.ok(available);
+    }
+
 }
