@@ -1,0 +1,31 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import pickle
+import numpy as np
+
+app = Flask(__name__)
+CORS(app)
+
+# Load ETA prediction model
+with open("model/route_model.pkl", "rb") as f:
+    route_model = pickle.load(f)
+
+@app.route("/predict_eta", methods=["POST"])
+def predict_eta():
+    data = request.json
+    # Example features: start_lat, start_lon, end_lat, end_lon, hour, weekday
+    features = np.array([[data['start_lat'], data['start_lon'],
+                          data['end_lat'], data['end_lon'],
+                          data['hour'], data['weekday']]])
+    eta = route_model.predict(features)[0]
+    return jsonify({"eta": eta})
+
+@app.route("/assign_vehicle", methods=["POST"])
+def assign_vehicle():
+    data = request.json
+    # TODO: Implement ML-based or heuristic load balancing
+    assigned_vehicle_id = 1  # Placeholder
+    return jsonify({"vehicle_id": assigned_vehicle_id})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
