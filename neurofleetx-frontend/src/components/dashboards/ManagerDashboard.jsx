@@ -4,16 +4,25 @@ import { connectWebSocket } from "../../api/wsClient";
 import { fetchVehicles } from "../../api/vehicleApi";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../../api/axiosInstance.js";
-import FleetMap from "../../components/FleetMap";
-import VehicleCard from "../../components/VehicleCard";
-import VehicleModal from "../../components/VehicleModal";
+import FleetMap from "../map/FleetMap.jsx";
 import VehicleDashboardKPIs from "../../components/VehicleDashboardKPIs";
+import routeApi from "../../api/routeApi";
 import {
   motion,
   AnimatePresence,
   useMotionValue,
   useTransform,
 } from "framer-motion";
+import { VehicleActionTypes } from "../../reducers/Vehicle/vehicleActionTypes.js";
+import RouteMap from "../map/RouteMap.jsx";
+import RouteForm from "../manager/RouteForm.jsx";
+import RouteList from "../manager/RouteList.jsx";
+import MaintenanceCharts from "../maintenance/MaintenanceCharts.jsx";
+import maintenanceApi from "../../api/maintenanceApi.js";
+import { connectMaintenanceSocket } from "../../api/wsMaintenance";
+import AlertsTable from "../maintenance/AlertsTable.jsx";
+import VehicleHealthCard from "../maintenance/VehicleHealthCard.jsx";
+import BookingManager from "../booking/BookingManager.jsx";
 
 const ManagerDashboard = () => {
   const { state, dispatch } = useGlobalState();
@@ -33,6 +42,7 @@ const ManagerDashboard = () => {
   const [drivers, setDrivers] = useState([]);
   const [trips, setTrips] = useState([]);
   const [selectedDriver, setSelectedDriver] = useState("");
+  const [maintenanceTickets, setMaintenanceTickets] = useState([]);
 
   const canvasRef = useRef(null);
   const mouseX = useMotionValue(0);
@@ -133,40 +143,111 @@ const ManagerDashboard = () => {
     return () => window.removeEventListener("mousemove", handleMouseMove);
   }, [mouseX, mouseY]);
 
+  // Health Analytics
+  useEffect(() => {
+    const loadMaintenanceData = async () => {
+      try {
+        const tickets = await maintenanceApi.getOpenTickets();
+        setMaintenanceTickets(tickets.data || tickets);
+        dispatch({
+          type: actionTypes.SET_TICKETS,
+          payload: tickets.data || tickets,
+        });
+      } catch (error) {
+        console.error("Error loading maintenance data:", error);
+        setMaintenanceTickets([]);
+      }
+    };
+
+    loadMaintenanceData();
+
+    // ✅ Safely connect WebSocket (won't crash if it fails)
+    try {
+      connectMaintenanceSocket((ticketUpdate) => {
+        if (!ticketUpdate.status || ticketUpdate.status === "OPEN") {
+          dispatch({ type: actionTypes.ADD_TICKET, payload: ticketUpdate });
+          setMaintenanceTickets((prev) => [...prev, ticketUpdate]);
+        } else {
+          dispatch({ type: actionTypes.UPDATE_TICKET, payload: ticketUpdate });
+          setMaintenanceTickets((prev) =>
+            prev.map((t) => (t.id === ticketUpdate.id ? ticketUpdate : t))
+          );
+        }
+      });
+    } catch (error) {
+      console.warn(
+        "WebSocket not available, continuing without real-time updates"
+      );
+    }
+
+    return () => {
+      try {
+        import("../../api/wsMaintenance").then((m) =>
+          m.disconnectMaintenanceSocket()
+        );
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    };
+  }, [dispatch]);
+
   const backgroundX = useTransform(mouseX, [0, window.innerWidth], [0, 100]);
   const backgroundY = useTransform(mouseY, [0, window.innerHeight], [0, 100]);
 
   // Load data
+  // Move outside of useEffect
+  const loadData = async () => {
+    // Load vehicles
+    const vehicles = await fetchVehicles();
+    dispatch({ type: actionTypes.SET_VEHICLES, payload: vehicles });
+
+    // Load drivers
+    try {
+      const driversRes = await axiosInstance.get("/manager/drivers");
+      setDrivers(driversRes.data || []);
+    } catch (error) {
+      console.error("Error loading drivers:", error);
+      setDrivers([]);
+    }
+
+    // Load trips
+    try {
+      const tripsRes = await axiosInstance.get("/trips");
+      setTrips(tripsRes.data || []);
+    } catch (error) {
+      console.error("Error loading trips:", error);
+      setTrips([]);
+    }
+  };
+
+  // Add loadRoutes function
+  const loadRoutes = async () => {
+    try {
+      const res = await routeApi.getManagerRoutes();
+      dispatch({ type: actionTypes.SET_ROUTES, payload: res.data || res });
+    } catch (err) {
+      console.error("Error loading routes:", err);
+    }
+  };
+
+  // Call it in useEffect
   useEffect(() => {
-    const loadData = async () => {
-      // Load vehicles
-      const vehicles = await fetchVehicles();
-      dispatch({ type: actionTypes.SET_VEHICLES, payload: vehicles });
-
-      // Load drivers
-      try {
-        const driversRes = await axiosInstance.get("/users?role=DRIVER");
-        setDrivers(driversRes.data || []);
-      } catch (error) {
-        console.error("Error loading drivers:", error);
-        setDrivers([]);
-      }
-
-      // Load trips
-      try {
-        const tripsRes = await axiosInstance.get("/trips");
-        setTrips(tripsRes.data || []);
-      } catch (error) {
-        console.error("Error loading trips:", error);
-        setTrips([]);
-      }
-    };
     loadData();
+    loadRoutes();
 
     connectWebSocket((data) =>
       dispatch({ type: actionTypes.UPDATE_TELEMETRY, payload: data })
     );
   }, [dispatch]);
+
+  // Load route data from web socket
+  useEffect(() => {
+    connectWebSocket((routeUpdate) => {
+      if (routeUpdate.driver?.id === state.user.id) {
+        dispatch({ type: actionTypes.UPDATE_ROUTE, payload: routeUpdate });
+      }
+    });
+  }, [dispatch, state.user.id]);
 
   // Filter vehicles
   const filteredVehicles = state.vehicles.filter((vehicle) => {
@@ -191,23 +272,81 @@ const ManagerDashboard = () => {
     setShowAssignModal(true);
   };
 
-  const handleSubmitAssignment = async () => {
-    if (!selectedDriver) {
+  // Manager Operations
+  const handleSubmitAssignment = async (vehicleId, driverId) => {
+    if (!driverId) {
       alert("Please select a driver");
       return;
     }
 
     try {
-      await axiosInstance.post(`/vehicles/${selectedForAssignment.id}/assign`, {
-        driverId: selectedDriver,
+      // Call backend
+      const res = await axiosInstance.post(
+        `/manager/vehicles/${vehicleId}/assign/${driverId}`
+      );
+
+      const updatedVehicle = res.data; // backend should return updated vehicle
+
+      // Ensure local UI is updated instantly
+      const updatedVehicles = state.vehicles.map((v) =>
+        v.id === vehicleId
+          ? {
+              ...v,
+              assignedDriverId: updatedVehicle.assignedDriverId,
+              assignedDriverName: updatedVehicle.assignedDriverName,
+              status: "In Use", // optional: if assigning changes status
+            }
+          : v
+      );
+
+      dispatch({
+        type: actionTypes.SET_VEHICLES,
+        payload: updatedVehicles,
       });
-      alert(`Driver assigned to ${selectedForAssignment.name}`);
+
+      // Ensure the driver object exists and has a name
+
+      alert(`Driver assigned to ${updatedVehicle.assignedDriverName}`);
       setShowAssignModal(false);
       setSelectedForAssignment(null);
       setSelectedDriver("");
     } catch (error) {
       console.error("Error assigning driver:", error);
       alert("Failed to assign driver");
+    }
+  };
+
+  // Add this function with other handlers
+  const handleCancelAssignment = async (vehicle) => {
+    if (!window.confirm(`Cancel driver assignment for ${vehicle.name}?`))
+      return;
+
+    try {
+      const res = await axiosInstance.post(
+        `/manager/vehicles/${vehicle.id}/unassign`
+      );
+      const updatedVehicle = res.data;
+
+      // Update frontend state immediately
+      const updatedVehicles = state.vehicles.map((v) =>
+        v.id === vehicle.id
+          ? {
+              ...v,
+              assignedDriverId: null,
+              assignedDriverName: null,
+            }
+          : v
+      );
+
+      dispatch({
+        type: actionTypes.SET_VEHICLES,
+        payload: updatedVehicles,
+      });
+
+      alert(`Driver unassigned successfully from ${vehicle.name}`);
+    } catch (error) {
+      console.error("Error cancelling assignment:", error);
+      alert("Failed to unassign driver");
     }
   };
 
@@ -334,6 +473,9 @@ const ManagerDashboard = () => {
                   { mode: "grid", icon: "▦", label: "Grid" },
                   { mode: "map", icon: "🗺️", label: "Map" },
                   { mode: "trips", icon: "🚀", label: "Trips" },
+                  { mode: "bookings", icon: "📋", label: "Bookings" },
+                  { mode: "optimizer", icon: "🎯", label: "Route Optimizer" },
+                  { mode: "maintenance", icon: "🔧", label: "Maintenance" },
                 ].map((item) => (
                   <motion.button
                     key={item.mode}
@@ -565,83 +707,183 @@ const ManagerDashboard = () => {
               exit={{ opacity: 0, y: -20 }}
               className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
             >
-              {filteredVehicles.map((vehicle, index) => (
-                <motion.div
-                  key={vehicle.id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: index * 0.05 }}
-                >
-                  <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-xl font-bold text-white">
-                        {vehicle.name}
-                      </h3>
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          vehicle.status === "Available"
-                            ? "bg-green-500/20 text-green-400"
-                            : vehicle.status === "In Use"
-                            ? "bg-yellow-500/20 text-yellow-400"
-                            : "bg-red-500/20 text-red-400"
-                        }`}
-                      >
-                        {vehicle.status}
-                      </span>
-                    </div>
+              {filteredVehicles.map((vehicle, index) => {
+                // Vehicle Type Configuration
+                const typeConfig = {
+                  Car: {
+                    icon: "🚗",
+                    bg: "from-blue-500/20 to-cyan-500/10",
+                    text: "text-blue-400",
+                  },
+                  Van: {
+                    icon: "🚐",
+                    bg: "from-purple-500/20 to-pink-500/10",
+                    text: "text-purple-400",
+                  },
+                  Truck: {
+                    icon: "🚚",
+                    bg: "from-orange-500/20 to-red-500/10",
+                    text: "text-orange-400",
+                  },
+                  EV: {
+                    icon: "⚡",
+                    bg: "from-green-500/20 to-emerald-500/10",
+                    text: "text-green-400",
+                  },
+                  Bike: {
+                    icon: "🏍️",
+                    bg: "from-yellow-500/20 to-amber-500/10",
+                    text: "text-yellow-400",
+                  },
+                };
 
-                    <div className="space-y-2 mb-4">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-white/60">Battery:</span>
-                        <span className="text-white font-semibold">
-                          {vehicle.batteryLevel}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-white/60">Fuel:</span>
-                        <span className="text-white font-semibold">
-                          {vehicle.fuelLevel}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-white/60">Speed:</span>
-                        <span className="text-white font-semibold">
-                          {vehicle.speed} km/h
-                        </span>
-                      </div>
-                    </div>
+                const currentType = typeConfig[vehicle.type] || typeConfig.Car;
 
-                    <div className="flex gap-2">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleViewVehicle(vehicle)}
-                        className="flex-1 px-4 py-2 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-xl font-semibold hover:bg-purple-500/30 transition-all"
-                      >
-                        View
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleAssignDriver(vehicle)}
-                        className="flex-1 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl font-semibold hover:bg-blue-500/30 transition-all"
-                      >
-                        Assign
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() =>
-                          handleScheduleMaintenance(vehicle.id, vehicle.name)
-                        }
-                        className="flex-1 px-4 py-2 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-xl font-semibold hover:bg-orange-500/30 transition-all"
-                      >
-                        Maintain
-                      </motion.button>
+                return (
+                  <motion.div
+                    key={vehicle.id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                  >
+                    <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
+                      {/* Header with Vehicle Name and Type Icon */}
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-xl font-bold text-white mb-2">
+                            {vehicle.name}
+                          </h3>
+
+                          {/* Vehicle Type Badge */}
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: 0.1 }}
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl backdrop-blur-sm border border-white/20 bg-gradient-to-r ${currentType.bg}`}
+                          >
+                            <motion.span
+                              animate={{ rotate: [0, 10, -10, 0] }}
+                              transition={{
+                                duration: 2,
+                                repeat: Infinity,
+                                repeatDelay: 3,
+                              }}
+                              className="text-lg"
+                            >
+                              {currentType.icon}
+                            </motion.span>
+                            <span
+                              className={`text-sm font-bold ${currentType.text}`}
+                            >
+                              {vehicle.type}
+                            </span>
+                          </motion.div>
+                        </div>
+
+                        {/* Large Type Icon */}
+                        <motion.div
+                          whileHover={{ scale: 1.2, rotate: 360 }}
+                          transition={{ duration: 0.3 }}
+                          className="text-3xl"
+                        >
+                          {currentType.icon}
+                        </motion.div>
+                      </div>
+
+                      {/* Status Badge */}
+                      <div className="mb-4">
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                            vehicle.status === "Available"
+                              ? "bg-green-500/20 text-green-400"
+                              : vehicle.status === "In Use"
+                              ? "bg-yellow-500/20 text-yellow-400"
+                              : "bg-red-500/20 text-red-400"
+                          }`}
+                        >
+                          {vehicle.status}
+                        </span>
+                      </div>
+
+                      {/* Metrics */}
+                      <div className="space-y-2 mb-4">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-white/60">🔋 Battery</span>
+                          <span className="text-white font-semibold">
+                            {vehicle.batteryLevel}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-white/60">⛽ Fuel</span>
+                          <span className="text-white font-semibold">
+                            {vehicle.fuelLevel}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-white/60">💨 Speed</span>
+                          <span className="text-white font-semibold">
+                            {vehicle.speed} km/h
+                          </span>
+                        </div>
+
+                        {/* Driver Display */}
+                        <div className="flex justify-between text-sm pt-2 border-t border-white/10">
+                          <span className="text-white/60">👤 Driver</span>
+                          <span className="text-white font-semibold">
+                            {vehicle.assignedDriver?.fullName ||
+                              vehicle.assignedDriverName ||
+                              "Unassigned"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-2 flex-wrap">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleViewVehicle(vehicle)}
+                          className="flex-1 px-4 py-2 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-xl font-semibold hover:bg-purple-500/30 transition-all text-sm"
+                        >
+                          👁️ View
+                        </motion.button>
+
+                        {/* Conditional Assign/Cancel button */}
+                        {vehicle.assignedDriverName ? (
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleCancelAssignment(vehicle)}
+                            className="flex-1 px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl font-semibold hover:bg-red-500/30 transition-all text-sm"
+                          >
+                            ❌ Cancel
+                          </motion.button>
+                        ) : (
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleAssignDriver(vehicle)}
+                            className="flex-1 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl font-semibold hover:bg-blue-500/30 transition-all text-sm"
+                          >
+                            👤 Assign
+                          </motion.button>
+                        )}
+
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() =>
+                            handleScheduleMaintenance(vehicle.id, vehicle.name)
+                          }
+                          className="w-full px-4 py-2 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-xl font-semibold hover:bg-orange-500/30 transition-all text-sm mt-2"
+                        >
+                          🔧 Maintain
+                        </motion.button>
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                );
+              })}
             </motion.div>
           )}
 
@@ -702,6 +944,184 @@ const ManagerDashboard = () => {
                   ))}
                 </div>
               )}
+            </motion.div>
+          )}
+
+          {viewMode === "bookings" && (
+            <motion.div
+              key="bookings"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <BookingManager />
+            </motion.div>
+          )}
+
+          {viewMode === "optimizer" && (
+            <motion.div
+              key="optimizer"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-1">
+                  <RouteForm
+                    onCreated={(r) => {
+                      dispatch({ type: actionTypes.UPDATE_ROUTE, payload: r });
+                      loadRoutes();
+                    }}
+                  />
+                </div>
+
+                <div className="lg:col-span-2">
+                  <RouteList routes={state.routes} onUpdated={loadRoutes} />
+                </div>
+              </div>
+
+              <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                <h2 className="text-2xl font-bold text-white mb-4">
+                  Route Map
+                </h2>
+                <RouteMap
+                  routes={state.routes}
+                  vehicles={state.vehicles}
+                  height="600px"
+                />
+              </div>
+            </motion.div>
+          )}
+
+          {viewMode === "maintenance" && (
+            <motion.div
+              key="maintenance"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              {/* Maintenance KPI Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  {
+                    title: "Total Vehicles",
+                    value: state.vehicles.length,
+                    icon: "🚗",
+                    bg: "from-blue-500/20 to-cyan-500/10",
+                  },
+                  {
+                    title: "Open Tickets",
+                    value: maintenanceTickets.filter((t) => t.status === "OPEN")
+                      .length,
+                    icon: "🎫",
+                    bg: "from-yellow-500/20 to-orange-500/10",
+                  },
+                  {
+                    title: "Critical",
+                    value: maintenanceTickets.filter(
+                      (t) => t.severity === "HIGH" && t.status === "OPEN"
+                    ).length,
+                    icon: "⚠️",
+                    bg: "from-red-500/20 to-pink-500/10",
+                  },
+                  {
+                    title: "Healthy",
+                    value: state.vehicles.filter((v) => (v.tireWear || 0) < 50)
+                      .length,
+                    icon: "✅",
+                    bg: "from-green-500/20 to-emerald-500/10",
+                  },
+                ].map((stat, index) => (
+                  <motion.div
+                    key={stat.title}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 * index }}
+                    whileHover={{ y: -5, scale: 1.02 }}
+                    className="relative group"
+                  >
+                    <motion.div
+                      className={`absolute inset-0 bg-gradient-to-br ${stat.bg} rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`}
+                    />
+                    <div className="relative backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
+                      <motion.div
+                        whileHover={{ scale: 1.2, rotate: 10 }}
+                        className="text-3xl mb-3"
+                      >
+                        {stat.icon}
+                      </motion.div>
+                      <h3 className="text-3xl font-black text-white mb-1">
+                        {stat.value}
+                      </h3>
+                      <p className="text-white/60 text-sm font-semibold">
+                        {stat.title}
+                      </p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Charts & Alerts Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Maintenance Charts */}
+                <div className="lg:col-span-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                  <h2 className="text-2xl font-bold text-white mb-6">
+                    Maintenance Analytics
+                  </h2>
+                  <MaintenanceCharts
+                    vehicles={state.vehicles}
+                    tickets={maintenanceTickets}
+                  />
+                </div>
+
+                {/* Alerts Table */}
+                <div className="lg:col-span-1 backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                  <h2 className="text-2xl font-bold text-white mb-6">
+                    Active Alerts
+                  </h2>
+                  <AlertsTable
+                    tickets={maintenanceTickets}
+                    onTicketUpdated={(updatedTicket) => {
+                      setMaintenanceTickets((prev) =>
+                        updatedTicket.status === "RESOLVED"
+                          ? prev.filter((t) => t.id !== updatedTicket.id) // remove from list
+                          : prev.map((t) =>
+                              t.id === updatedTicket.id ? updatedTicket : t
+                            )
+                      );
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Vehicle Health Cards */}
+              <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                <h2 className="text-2xl font-bold text-white mb-6">
+                  Vehicle Health Status
+                </h2>
+
+                {state.vehicles.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">🔧</div>
+                    <p className="text-white/60">No vehicles to monitor</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {state.vehicles.map((vehicle, index) => (
+                      <motion.div
+                        key={vehicle.id}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: index * 0.05 }}
+                      >
+                        <VehicleHealthCard vehicle={vehicle} />
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -826,14 +1246,18 @@ const ManagerDashboard = () => {
                     onChange={(e) => setSelectedDriver(e.target.value)}
                     className="w-full p-3 bg-white/10 text-white border border-white/20 rounded-xl focus:outline-none focus:border-purple-500 mb-6"
                   >
-                    <option value="">Select a driver</option>
+                    <option value="" className="bg-gray-800">
+                      Select a driver
+                    </option>
                     {drivers.map((driver) => (
                       <option
                         key={driver.id}
                         value={driver.id}
                         className="bg-gray-800"
                       >
-                        {driver.name} - {driver.email}
+                        {driver.fullName ||
+                          driver.email ||
+                          `Driver #${driver.id}`}
                       </option>
                     ))}
                   </select>
@@ -849,7 +1273,12 @@ const ManagerDashboard = () => {
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={handleSubmitAssignment}
+                      onClick={() =>
+                        handleSubmitAssignment(
+                          selectedForAssignment.id,
+                          selectedDriver
+                        )
+                      }
                       className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
                     >
                       Assign

@@ -27,6 +27,37 @@ export default function VehicleCard({ vehicle, onEdit, onDelete }) {
           dot: "bg-red-400",
         };
 
+  // Vehicle Type Configuration
+  const typeConfig = {
+    Car: {
+      icon: "🚗",
+      bg: "from-blue-500/20 to-cyan-500/10",
+      text: "text-blue-400",
+    },
+    Van: {
+      icon: "🚐",
+      bg: "from-purple-500/20 to-pink-500/10",
+      text: "text-purple-400",
+    },
+    Truck: {
+      icon: "🚚",
+      bg: "from-orange-500/20 to-red-500/10",
+      text: "text-orange-400",
+    },
+    EV: {
+      icon: "⚡",
+      bg: "from-green-500/20 to-emerald-500/10",
+      text: "text-green-400",
+    },
+    Bike: {
+      icon: "🏍️",
+      bg: "from-yellow-500/20 to-amber-500/10",
+      text: "text-yellow-400",
+    },
+  };
+
+  const currentType = typeConfig[vehicle.type] || typeConfig.Car;
+
   const containerVariants = {
     hidden: { opacity: 0, y: 20, scale: 0.95 },
     visible: {
@@ -124,34 +155,40 @@ export default function VehicleCard({ vehicle, onEdit, onDelete }) {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.1 }}
-                className="font-black text-xl text-white mb-1 truncate"
+                className="font-black text-xl text-white mb-2 truncate"
               >
                 {vehicle.name}
               </motion.h3>
-              <motion.p
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.2 }}
-                className="text-sm text-white/60 flex items-center gap-2"
+
+              {/* Vehicle Type Badge - NEW PROMINENT DISPLAY */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl backdrop-blur-sm border border-white/20 bg-gradient-to-r ${currentType.bg}`}
               >
-                <span className="text-lg">🚗</span>
-                <span>{vehicle.type}</span>
-              </motion.p>
+                <motion.span
+                  animate={{ rotate: [0, 10, -10, 0] }}
+                  transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+                  className="text-xl"
+                >
+                  {currentType.icon}
+                </motion.span>
+                <span className={`text-sm font-bold ${currentType.text}`}>
+                  {vehicle.type}
+                </span>
+              </motion.div>
             </div>
 
-            {/* Type Badge */}
+            {/* Large Icon Badge */}
             <motion.div
               initial={{ scale: 0, rotate: -180 }}
               animate={{ scale: 1, rotate: 0 }}
               transition={{ type: "spring", stiffness: 200, delay: 0.3 }}
-              whileHover={{ scale: 1.1, rotate: 5 }}
-              className="text-3xl"
+              whileHover={{ scale: 1.2, rotate: 360 }}
+              className="text-4xl"
             >
-              {vehicle.type === "Car" && "🚗"}
-              {vehicle.type === "Van" && "🚐"}
-              {vehicle.type === "Truck" && "🚚"}
-              {vehicle.type === "EV" && "⚡"}
-              {vehicle.type === "Bike" && "🏍️"}
+              {currentType.icon}
             </motion.div>
           </div>
 
@@ -173,6 +210,7 @@ export default function VehicleCard({ vehicle, onEdit, onDelete }) {
             <span className="text-xs font-bold text-white/90">
               {vehicle.status}
             </span>
+            <span className="text-xs text-white/60">{statusConfig.icon}</span>
           </motion.div>
         </div>
 

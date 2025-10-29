@@ -15,18 +15,30 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Frontend connects here
+        // Telemetry WebSocket (existing)
         registry.addEndpoint("/ws-telemetry")
                 .addInterceptors(authHandshakeInterceptor)
-                .setAllowedOriginPatterns("*") // or specify your frontend origin
+                .setAllowedOriginPatterns("*")
+                .withSockJS();
+
+        // ✅ ADD: Maintenance WebSocket (new)
+        registry.addEndpoint("/ws-maintenance")
+                .addInterceptors(authHandshakeInterceptor)
+                .setAllowedOriginPatterns("*")
+                .withSockJS();
+
+        // ✅ ADD: General WebSocket endpoint
+        registry.addEndpoint("/ws")
+                .addInterceptors(authHandshakeInterceptor)
+                .setAllowedOriginPatterns("*")
                 .withSockJS();
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         // Prefix for sending messages from server to client
-        registry.enableSimpleBroker("/topic");
-        // Prefix for messages sent from client to server (optional)
+        registry.enableSimpleBroker("/topic", "/queue"); // Added /queue
+        // Prefix for messages sent from client to server
         registry.setApplicationDestinationPrefixes("/app");
     }
 }

@@ -24,8 +24,9 @@ public class AdminController {
 
     // list all users
     @GetMapping("/users")
-    public ResponseEntity<List<User>> listUsers() {
-        return ResponseEntity.ok(userRepository.findAll());
+    public ResponseEntity<List<User>> listDrivers() {
+        List<User> drivers = userRepository.findByRoleName("DRIVER");
+        return ResponseEntity.ok(drivers);
     }
 
     // change user's role

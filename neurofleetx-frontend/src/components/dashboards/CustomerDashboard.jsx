@@ -2,12 +2,15 @@ import React, { useEffect, useState, useRef } from "react";
 import { useGlobalState, actionTypes } from "../../context/GlobalState.jsx";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../../api/axiosInstance.js";
+import FleetMap from "../map/FleetMap.jsx";
 import {
   motion,
   AnimatePresence,
   useMotionValue,
   useTransform,
 } from "framer-motion";
+import BookingForm from "../booking/BookingForm.jsx";
+import BookingList from "../booking/BookingList.jsx";
 
 const CustomerDashboard = () => {
   const { state, dispatch } = useGlobalState();
@@ -19,8 +22,9 @@ const CustomerDashboard = () => {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [myBookings, setMyBookings] = useState([]);
   const [availableVehicles, setAvailableVehicles] = useState([]);
-  const [viewMode, setViewMode] = useState("bookings"); // bookings, available, history
+  const [viewMode, setViewMode] = useState("bookings");
   const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [customerRoutes, setCustomerRoutes] = useState([]);
   const [bookingDetails, setBookingDetails] = useState({
     startDate: "",
     endDate: "",
@@ -134,20 +138,33 @@ const CustomerDashboard = () => {
   // Load data
   useEffect(() => {
     loadCustomerData();
-  }, []);
+  }, [userId]);
 
   const loadCustomerData = async () => {
     try {
-      const bookingsRes = await axiosInstance.get("/customer/bookings/me");
+      // Load bookings
+      const bookingsRes = await axiosInstance.get(`/customer/bookings/me`);
+
       const bookings = bookingsRes.data.map((b) => ({
         ...b,
         vehicleName: b.vehicle?.name || "Vehicle",
-        status: b.status.toLowerCase(), // normalize to lowercase
+        status: b.status.toLowerCase(),
       }));
       setMyBookings(bookings);
 
+      // Load available vehicles
       const vehiclesRes = await axiosInstance.get("/vehicles/available");
       setAvailableVehicles(vehiclesRes.data || []);
+
+      // Load customer routes/trips
+      try {
+        const routesRes = await axiosInstance.get(`/routes/customer/${userId}`);
+        setCustomerRoutes(routesRes.data || []);
+        dispatch({ type: actionTypes.SET_ROUTES, payload: routesRes.data });
+      } catch (error) {
+        console.error("Error loading routes:", error);
+        setCustomerRoutes([]);
+      }
     } catch (error) {
       console.error("Error loading customer data:", error);
     }
@@ -210,7 +227,7 @@ const CustomerDashboard = () => {
       return;
 
     try {
-      await axiosInstance.delete(`/customer/bookings/${bookingId}`);
+      await axiosInstance.put(`/customer/bookings/${bookingId}/cancel`);
       alert("Booking cancelled successfully!");
       loadCustomerData();
     } catch (error) {
@@ -232,18 +249,19 @@ const CustomerDashboard = () => {
   // Statistics
   const stats = {
     activeBookings: myBookings.filter((b) =>
-      ["booked", "pending"].includes(b.status)
+      ["confirmed", "pending"].includes(b.status)
     ).length,
     completedBookings: myBookings.filter((b) => b.status === "completed")
       .length,
     totalBookings: myBookings.length,
-    availableVehicles: availableVehicles.length,
+    upcomingTrips: customerRoutes.filter((r) => r.status === "active").length,
   };
 
-  // Inside CustomerDashboard, before `return (`
   const activeBookings = myBookings.filter((b) =>
-    ["pending", "booked"].includes(b.status)
+    ["pending", "confirmed"].includes(b.status)
   );
+
+  const bookedRoutes = customerRoutes.filter((r) => r.customerId === userId);
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -316,9 +334,11 @@ const CustomerDashboard = () => {
               {/* View Mode Toggle */}
               <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-1 rounded-xl border border-white/20">
                 {[
-                  { mode: "bookings", icon: "📋", label: "My Bookings" },
+                  { mode: "bookings", icon: "📋", label: "Bookings" },
                   { mode: "available", icon: "🚗", label: "Available" },
+                  { mode: "trips", icon: "🚀", label: "My Trips" },
                   { mode: "history", icon: "📜", label: "History" },
+                  { mode: "smart-booking", icon: "🤖", label: "AI Booking" },
                 ].map((item) => (
                   <motion.button
                     key={item.mode}
@@ -439,9 +459,9 @@ const CustomerDashboard = () => {
               bg: "from-purple-500/20 to-pink-500/10",
             },
             {
-              title: "Available Vehicles",
-              value: stats.availableVehicles,
-              icon: "🚙",
+              title: "Upcoming Trips",
+              value: stats.upcomingTrips,
+              icon: "🚀",
               bg: "from-orange-500/20 to-yellow-500/10",
             },
           ].map((stat, index) => (
@@ -508,54 +528,52 @@ const CustomerDashboard = () => {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {myBookings
-                    .filter((b) => ["booked", "pending"].includes(b.status))
-                    .map((booking) => (
-                      <motion.div
-                        key={booking.id}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all"
-                      >
-                        <div className="flex justify-between items-start mb-4">
-                          <h3 className="text-lg font-bold text-white">
-                            {booking.vehicleName}
-                          </h3>
-                          <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold">
-                            {booking.status.charAt(0).toUpperCase() +
-                              booking.status.slice(1)}
+                  {activeBookings.map((booking) => (
+                    <motion.div
+                      key={booking.id}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all"
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <h3 className="text-lg font-bold text-white">
+                          {booking.vehicleName}
+                        </h3>
+                        <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold">
+                          {booking.status.charAt(0).toUpperCase() +
+                            booking.status.slice(1)}
+                        </span>
+                      </div>
+                      <div className="space-y-2 mb-4">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-white/60">Start Date:</span>
+                          <span className="text-white font-semibold">
+                            {new Date(booking.startDate).toLocaleDateString()}
                           </span>
                         </div>
-                        <div className="space-y-2 mb-4">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-white/60">Start Date:</span>
-                            <span className="text-white font-semibold">
-                              {new Date(booking.startDate).toLocaleDateString()}
-                            </span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-white/60">End Date:</span>
-                            <span className="text-white font-semibold">
-                              {new Date(booking.endDate).toLocaleDateString()}
-                            </span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-white/60">Pickup:</span>
-                            <span className="text-white font-semibold">
-                              {booking.pickupLocation}
-                            </span>
-                          </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-white/60">End Date:</span>
+                          <span className="text-white font-semibold">
+                            {new Date(booking.endDate).toLocaleDateString()}
+                          </span>
                         </div>
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => handleCancelBooking(booking.id)}
-                          className="w-full px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl font-semibold hover:bg-red-500/30 transition-all"
-                        >
-                          Cancel Booking
-                        </motion.button>
-                      </motion.div>
-                    ))}
+                        <div className="flex justify-between text-sm">
+                          <span className="text-white/60">Pickup:</span>
+                          <span className="text-white font-semibold">
+                            {booking.pickupLocation}
+                          </span>
+                        </div>
+                      </div>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handleCancelBooking(booking.id)}
+                        className="w-full px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl font-semibold hover:bg-red-500/30 transition-all"
+                      >
+                        Cancel Booking
+                      </motion.button>
+                    </motion.div>
+                  ))}
                 </div>
               )}
             </motion.div>
@@ -635,6 +653,80 @@ const CustomerDashboard = () => {
             </motion.div>
           )}
 
+          {/* My Trips View */}
+          {viewMode === "trips" && (
+            <motion.div
+              key="trips"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              {/* Trips Map */}
+              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                <h2 className="text-2xl font-bold text-white mb-4">
+                  Trip Routes
+                </h2>
+                <FleetMap
+                  vehicles={[]}
+                  routes={bookedRoutes}
+                  height="400px"
+                  showControls={true}
+                  showLegend={true}
+                  defaultStyle="dark"
+                />
+              </motion.div>
+
+              {/* Trips List */}
+              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                <h2 className="text-2xl font-bold text-white mb-6">
+                  Your Trips
+                </h2>
+                {bookedRoutes.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">🚀</div>
+                    <p className="text-white/60">No upcoming trips</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {bookedRoutes.map((route) => (
+                      <div
+                        key={route.id}
+                        className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-xl p-4"
+                      >
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <p className="text-white font-semibold">
+                              Vehicle: {route.vehicleId}
+                            </p>
+                            <p className="text-white/60 text-sm">
+                              Driver: {route.driverId}
+                            </p>
+                          </div>
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                              route.status === "active"
+                                ? "bg-green-500/20 text-green-400"
+                                : "bg-gray-500/20 text-gray-400"
+                            }`}
+                          >
+                            {route.status}
+                          </span>
+                        </div>
+                        <p className="text-white/80 text-sm">
+                          ETA:{" "}
+                          <span className="font-bold">
+                            {route.eta.toFixed(1)} min
+                          </span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            </motion.div>
+          )}
+
           {/* History View */}
           {viewMode === "history" && (
             <motion.div
@@ -685,6 +777,39 @@ const CustomerDashboard = () => {
                   </div>
                 </div>
               )}
+            </motion.div>
+          )}
+
+          {viewMode === "smart-booking" && (
+            <motion.div
+              key="smart-booking"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="col-span-1 space-y-6">
+                  <BookingForm onBookingCreated={loadCustomerData} />
+                  <BookingList />
+                </div>
+                <div className="col-span-2">
+                  <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                    <h3 className="text-xl font-bold text-white mb-4">
+                      🗺️ Live Tracking
+                    </h3>
+                    <div className="h-[600px] bg-slate-800/50 rounded-xl overflow-hidden">
+                      <FleetMap
+                        vehicles={availableVehicles}
+                        routes={customerRoutes}
+                        height="600px"
+                        showControls={true}
+                        defaultStyle="dark"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

@@ -26,16 +26,27 @@ public class Vehicle {
     @JoinColumn(name = "status_id")
     private VehicleStatus status;
 
-    private double batteryLevel;
-    private double fuelLevel;
-    private double speed;
-    private double latitude;
-    private double longitude;
+    private Boolean isEv = false;
+
+    private Double batteryLevel;
+    private Double fuelLevel;
+    private Double speed;
+    private Double latitude;
+    private Double longitude;
+
+//    Health analytics
+    private Double tireWear;
+    private Double mileage;
 
     private LocalDateTime lastUpdated;
 
-    @ManyToOne
-    @JoinColumn(name = "assigned_driver_id")
+    // ✅ ADD THIS: Direct driver ID field for easier queries
+    @Column(name = "assigned_driver_id")
+    private Long assignedDriverId;
+
+    // Keep the relationship for object access
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_driver_id", insertable = false, updatable = false)
     private User assignedDriver;
 }
 
