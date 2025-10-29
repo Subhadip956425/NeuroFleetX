@@ -1,6 +1,5 @@
 package com.infosys.config;
 
-
 import com.infosys.security.jwt.AuthTokenFilter;
 import com.infosys.security.services.UserDetailsServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,27 +30,27 @@ public class SecurityConfig {
     private AuthTokenFilter authTokenFilter;
 
     @Bean
-    public BCryptPasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+    public BCryptPasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
 
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authConfig) throws Exception {
         return authConfig.getAuthenticationManager();
     }
 
-
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:5173")); // frontend url
+        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
-        configuration.setAllowCredentials(true); // if sending cookies/auth headers
+        configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
-
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -60,11 +59,22 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/ws-telemetry/**").permitAll() // Handshake interceptor handles websocket auth
+                        // ✅ UPDATED: Allow all WebSocket endpoints
+                        .requestMatchers(
+                                "/api/auth/**",
+                                "/ws-telemetry/**",
+                                "/ws-maintenance/**",
+                                "/ws/**",
+                                "/ws/info/**" // SockJS info endpoint
+                        ).permitAll()
+
+                        // Role-based endpoints
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/manager/**").hasAnyRole("MANAGER","ADMIN")
+                        .requestMatchers("/api/manager/**").hasAnyRole("MANAGER", "ADMIN")
                         .requestMatchers("/api/driver/**").hasRole("DRIVER")
                         .requestMatchers("/api/customer/**").hasRole("CUSTOMER")
+
+                        // All other requests require authentication
                         .anyRequest().authenticated()
                 );
 
@@ -73,6 +83,4 @@ public class SecurityConfig {
 
         return http.build();
     }
-
 }
-

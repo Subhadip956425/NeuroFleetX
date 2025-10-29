@@ -400,7 +400,7 @@ export default function FleetMap({
       </motion.div>
 
       {/* Global CSS for Leaflet */}
-      <style jsx global>{`
+      <style>{`
         .leaflet-popup-content-wrapper {
           background: white;
           border-radius: 12px;

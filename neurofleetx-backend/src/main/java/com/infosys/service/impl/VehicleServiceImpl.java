@@ -13,6 +13,7 @@ import com.infosys.repository.VehicleTypeRepository;
 import com.infosys.service.VehicleService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -125,6 +126,7 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public VehicleResponse updateTelemetry(Long vehicleId, Double speed, Double battery, Double fuel, Double latitude, Double longitude) {
         Vehicle vehicle = vehicleRepo.findById(vehicleId)
                 .orElseThrow(() -> new RuntimeException("Vehicle not found"));
@@ -158,8 +160,15 @@ public class VehicleServiceImpl implements VehicleService {
         if (!isDriver) throw new RuntimeException("User is not a DRIVER");
 
         vehicle.setAssignedDriver(driver);
+
+        // Update status to "In Use" when driver assigned
+        VehicleStatus inUseStatus = statusRepo.findByName("In Use")
+                .orElseThrow(() -> new RuntimeException("Status not found"));
+        vehicle.setStatus(inUseStatus);
+
         vehicle.setLastUpdated(LocalDateTime.now());
         vehicleRepo.save(vehicle);
+
         return mapToResponse(vehicle);
     }
 
@@ -167,6 +176,12 @@ public class VehicleServiceImpl implements VehicleService {
     public VehicleResponse unassignDriver(Long vehicleId) {
         Vehicle vehicle = vehicleRepo.findById(vehicleId).orElseThrow(() -> new RuntimeException("Vehicle not found"));
         vehicle.setAssignedDriver(null);
+
+        // Update status back to "Available" when driver unassigned
+        VehicleStatus availableStatus = statusRepo.findByName("Available")
+                .orElseThrow(() -> new RuntimeException("Status not found"));
+        vehicle.setStatus(availableStatus);
+
         vehicle.setLastUpdated(LocalDateTime.now());
         vehicleRepo.save(vehicle);
         return mapToResponse(vehicle);
@@ -191,4 +206,11 @@ public class VehicleServiceImpl implements VehicleService {
 
         return resp;
     }
+
+    @Override
+    public Vehicle getVehicleByDriverId(Long driverId) {
+        return vehicleRepo.findByAssignedDriverId(driverId)
+                .orElseThrow(() -> new RuntimeException("No vehicle assigned to driver with ID: " + driverId));
+    }
+
 }

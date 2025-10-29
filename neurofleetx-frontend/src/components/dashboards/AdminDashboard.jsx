@@ -3,8 +3,7 @@ import { useGlobalState, actionTypes } from "../../context/GlobalState.jsx";
 import { connectWebSocket } from "../../api/wsClient";
 import { fetchVehicles } from "../../api/vehicleApi";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
-import FleetMap from "../../components/FleetMap";
+import FleetMap from "../map/FleetMap.jsx";
 import VehicleCard from "../../components/VehicleCard";
 import VehicleModal from "../../components/VehicleModal";
 import VehicleDashboardKPIs from "../../components/VehicleDashboardKPIs";
@@ -15,6 +14,15 @@ import {
   useTransform,
 } from "framer-motion";
 import axiosInstance from "../../api/axiosInstance.js";
+import routeApi from "../../api/routeApi.js";
+import RouteMap from "../map/RouteMap.jsx";
+
+import MaintenanceCharts from "../maintenance/MaintenanceCharts.jsx";
+import AlertsTable from "../maintenance/AlertsTable.jsx";
+import VehicleHealthCard from "../maintenance/VehicleHealthCard.jsx";
+import maintenanceApi from "../../api/maintenanceApi.js";
+import HourlyActivityChart from "../analytics/HourlyActivityChart.jsx";
+import ExportReports from "../analytics/ExportReports.jsx";
 
 const AdminDashboard = () => {
   const { state, dispatch } = useGlobalState();
@@ -42,6 +50,108 @@ const AdminDashboard = () => {
   const API_URL = "http://localhost:8080/api/vehicles";
   const userRole = localStorage.getItem("role") || "ADMIN";
   const userEmail = state.user?.email || "admin@neurofleetx.com";
+
+  // Add these state variables at the top with other state declarations
+  const [statusFilter, setStatusFilter] = useState("");
+  const [driverFilter, setDriverFilter] = useState("");
+  const [drivers, setDrivers] = useState([]);
+  const [selectedAssignment, setSelectedAssignment] = useState({});
+
+  // Add with other state declarations
+  const [maintenanceTickets, setMaintenanceTickets] = useState([]);
+
+  // ADD this with your existing state declarations (around line 30)
+  const [activeAnalyticsTab, setActiveAnalyticsTab] = useState("overview");
+
+  // Add useEffect to load routes and drivers
+  useEffect(() => {
+    const loadRoutesAndDrivers = async () => {
+      try {
+        // Load all routes
+        const routesRes = await routeApi.getManagerRoutes();
+        dispatch({
+          type: actionTypes.SET_ROUTES,
+          payload: routesRes.data || [],
+        });
+
+        // Load all drivers
+        const driversRes = await axiosInstance.get("/admin/users");
+        setDrivers(driversRes.data || []);
+      } catch (error) {
+        console.error("Error loading routes and drivers:", error);
+      }
+    };
+
+    loadRoutesAndDrivers();
+  }, [dispatch]);
+
+  // Add maintenance data loading
+  useEffect(() => {
+    const loadMaintenanceData = async () => {
+      try {
+        const tickets = await maintenanceApi.getOpenTickets();
+        setMaintenanceTickets(tickets.data || tickets || []);
+        dispatch({
+          type: actionTypes.SET_TICKETS,
+          payload: tickets.data || tickets || [],
+        });
+      } catch (error) {
+        console.error("Error loading maintenance data:", error);
+        setMaintenanceTickets([]);
+      }
+    };
+
+    loadMaintenanceData();
+  }, [dispatch]);
+
+  // Add filter handler
+  const handleFilterRoutes = async () => {
+    try {
+      const filtered = await routeApi.filterRoutes(
+        statusFilter,
+        driverFilter || null
+      );
+      dispatch({
+        type: actionTypes.SET_ROUTES,
+        payload: filtered.data || filtered,
+      });
+    } catch (error) {
+      console.error("Error filtering routes:", error);
+    }
+  };
+
+  // Add assignment handler
+  const handleAssignRoute = async (routeId) => {
+    const assignment = selectedAssignment[routeId];
+
+    if (!assignment?.vehicleId || !assignment?.driverId) {
+      alert("Please select both vehicle and driver");
+      return;
+    }
+
+    try {
+      await routeApi.assignRoute(
+        routeId,
+        assignment.driverId,
+        assignment.vehicleId
+      );
+      alert("Route assigned successfully!");
+
+      // Reload routes
+      const routesRes = await routeApi.getManagerRoutes();
+      dispatch({ type: actionTypes.SET_ROUTES, payload: routesRes.data || [] });
+
+      // Clear selection
+      setSelectedAssignment((prev) => {
+        const newState = { ...prev };
+        delete newState[routeId];
+        return newState;
+      });
+    } catch (error) {
+      console.error("Error assigning route:", error);
+      alert("Failed to assign route");
+    }
+  };
 
   // Animated particle background
   useEffect(() => {
@@ -147,6 +257,13 @@ const AdminDashboard = () => {
     connectWebSocket((data) =>
       dispatch({ type: actionTypes.UPDATE_TELEMETRY, payload: data })
     );
+  }, [dispatch]);
+
+  // Load route data from web socket
+  useEffect(() => {
+    connectWebSocket((routeUpdate) => {
+      dispatch({ type: actionTypes.UPDATE_ROUTE, payload: routeUpdate });
+    });
   }, [dispatch]);
 
   // Filter vehicles
@@ -332,6 +449,9 @@ const AdminDashboard = () => {
                   { mode: "analytics", icon: "📊", label: "Analytics" },
                   { mode: "grid", icon: "▦", label: "Grid" },
                   { mode: "map", icon: "🗺️", label: "Map" },
+                  { mode: "routes", icon: "🛣️", label: "Routes" },
+                  { mode: "maintenance", icon: "🔧", label: "Maintenance" },
+                  { mode: "reports", label: "📊 Reports", icon: "📄" },
                 ].map((item) => (
                   <motion.button
                     key={item.mode}
@@ -561,8 +681,66 @@ const AdminDashboard = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
             >
-              <VehicleDashboardKPIs />
+              {/* Analytics Tab Navigation */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-2"
+              >
+                <div className="flex gap-2 overflow-x-auto">
+                  {analyticsTabs.map((tab) => (
+                    <motion.button
+                      key={tab.id}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setActiveAnalyticsTab(tab.id)}
+                      className={`px-6 py-3 rounded-xl font-semibold text-sm whitespace-nowrap transition-all ${
+                        activeAnalyticsTab === tab.id
+                          ? "bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg"
+                          : "text-white/60 hover:text-white hover:bg-white/5"
+                      }`}
+                    >
+                      <span className="mr-2">{tab.icon}</span>
+                      {tab.label}
+                    </motion.button>
+                  ))}
+                </div>
+              </motion.div>
+
+              {/* Analytics Tab Content */}
+              <motion.div
+                key={activeAnalyticsTab}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                {activeAnalyticsTab === "overview" && (
+                  <div className="space-y-6">
+                    <VehicleDashboardKPIs />
+                    <HourlyActivityChart />
+                  </div>
+                )}
+
+                {activeAnalyticsTab === "fleet-map" && <FleetHeatmap />}
+
+                {activeAnalyticsTab === "vehicles" && (
+                  <VehicleManager
+                    vehicles={filteredVehicles}
+                    onAdd={handleAddVehicle}
+                    onEdit={handleEditVehicle}
+                    onDelete={handleDeleteVehicle}
+                  />
+                )}
+
+                {activeAnalyticsTab === "users" && <UserManager />}
+
+                {activeAnalyticsTab === "bookings" && <BookingManager />}
+
+                {activeAnalyticsTab === "reports" && <ExportReports />}
+              </motion.div>
             </motion.div>
           )}
 
@@ -605,6 +783,360 @@ const AdminDashboard = () => {
                 showLegend={true}
                 defaultStyle="dark"
               />
+            </motion.div>
+          )}
+
+          {viewMode === "routes" && (
+            <motion.div
+              key="routes"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              {/* Filters Section */}
+              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                <h2 className="text-2xl font-bold text-white mb-6">
+                  Route Management
+                </h2>
+
+                <div className="flex gap-4 flex-wrap">
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="flex-1 min-w-[200px] p-3 bg-white/10 text-white border border-white/20 rounded-xl focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="" className="bg-gray-800">
+                      All Status
+                    </option>
+                    <option value="ASSIGNED" className="bg-gray-800">
+                      Assigned
+                    </option>
+                    <option value="PENDING" className="bg-gray-800">
+                      Pending
+                    </option>
+                    <option value="IN_PROGRESS" className="bg-gray-800">
+                      In Progress
+                    </option>
+                    <option value="COMPLETED" className="bg-gray-800">
+                      Completed
+                    </option>
+                  </select>
+
+                  <select
+                    value={driverFilter}
+                    onChange={(e) => setDriverFilter(e.target.value)}
+                    className="flex-1 min-w-[200px] p-3 bg-white/10 text-white border border-white/20 rounded-xl focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="" className="bg-gray-800">
+                      All Drivers
+                    </option>
+                    {drivers.map((d) => (
+                      <option key={d.id} value={d.id} className="bg-gray-800">
+                        {d.fullName || d.username}
+                      </option>
+                    ))}
+                  </select>
+
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleFilterRoutes}
+                    className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
+                  >
+                    Apply Filters
+                  </motion.button>
+                </div>
+              </motion.div>
+
+              {/* Routes List */}
+              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                <h3 className="text-xl font-bold text-white mb-6">
+                  All Routes
+                </h3>
+
+                {state.routes.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">🛣️</div>
+                    <p className="text-white/60">No routes found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {state.routes.map((route, index) => (
+                      <motion.div
+                        key={route.id}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-xl p-4"
+                      >
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                          {/* Route Info */}
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="text-white font-bold text-lg">
+                                #{route.id} - {route.origin} →{" "}
+                                {route.destination}
+                              </h4>
+                              <span
+                                className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                                  route.status === "ASSIGNED"
+                                    ? "bg-blue-500/20 text-blue-400"
+                                    : route.status === "IN_PROGRESS"
+                                    ? "bg-yellow-500/20 text-yellow-400"
+                                    : route.status === "COMPLETED"
+                                    ? "bg-green-500/20 text-green-400"
+                                    : "bg-gray-500/20 text-gray-400"
+                                }`}
+                              >
+                                {route.status}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-white/60">
+                              <div>
+                                <span className="block text-white/40">
+                                  Vehicle
+                                </span>
+                                <span className="text-white font-semibold">
+                                  {route.vehicle?.name ||
+                                    route.assignedVehicleId ||
+                                    "N/A"}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="block text-white/40">
+                                  Driver
+                                </span>
+                                <span className="text-white font-semibold">
+                                  {route.driver?.fullName ||
+                                    route.assignedDriverId ||
+                                    "N/A"}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="block text-white/40">ETA</span>
+                                <span className="text-white font-semibold">
+                                  {route.predictedEta
+                                    ? `${Math.round(route.predictedEta)} mins`
+                                    : "-"}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="block text-white/40">
+                                  Distance
+                                </span>
+                                <span className="text-white font-semibold">
+                                  {route.distanceKm
+                                    ? `${route.distanceKm} km`
+                                    : "-"}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Assignment Controls */}
+                          {route.status !== "COMPLETED" && (
+                            <div className="flex gap-2 flex-wrap">
+                              <select
+                                onChange={(e) => {
+                                  const vehicleId = e.target.value;
+                                  if (vehicleId)
+                                    setSelectedAssignment({
+                                      ...selectedAssignment,
+                                      [route.id]: {
+                                        ...selectedAssignment[route.id],
+                                        vehicleId,
+                                      },
+                                    });
+                                }}
+                                className="px-3 py-2 bg-white/10 text-white border border-white/20 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                              >
+                                <option value="" className="bg-gray-800">
+                                  Vehicle
+                                </option>
+                                {state.vehicles.map((v) => (
+                                  <option
+                                    key={v.id}
+                                    value={v.id}
+                                    className="bg-gray-800"
+                                  >
+                                    {v.name}
+                                  </option>
+                                ))}
+                              </select>
+
+                              <select
+                                onChange={(e) => {
+                                  const driverId = e.target.value;
+                                  if (driverId)
+                                    setSelectedAssignment({
+                                      ...selectedAssignment,
+                                      [route.id]: {
+                                        ...selectedAssignment[route.id],
+                                        driverId,
+                                      },
+                                    });
+                                }}
+                                className="px-3 py-2 bg-white/10 text-white border border-white/20 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                              >
+                                <option value="" className="bg-gray-800">
+                                  Driver
+                                </option>
+                                {drivers.map((d) => (
+                                  <option
+                                    key={d.id}
+                                    value={d.id}
+                                    className="bg-gray-800"
+                                  >
+                                    {d.fullName || d.username}
+                                  </option>
+                                ))}
+                              </select>
+
+                              <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => handleAssignRoute(route.id)}
+                                className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all"
+                              >
+                                Assign
+                              </motion.button>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+
+              {/* Route Map */}
+              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                <h3 className="text-xl font-bold text-white mb-4">Route Map</h3>
+                <RouteMap
+                  routes={state.routes}
+                  vehicles={state.vehicles}
+                  height="600px"
+                />
+              </motion.div>
+            </motion.div>
+          )}
+
+          {viewMode === "maintenance" && (
+            <motion.div
+              key="maintenance"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              {/* Maintenance KPI Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  {
+                    title: "Total Vehicles",
+                    value: state.vehicles.length,
+                    icon: "🚗",
+                    bg: "from-blue-500/20 to-cyan-500/10",
+                  },
+                  {
+                    title: "Open Tickets",
+                    value: maintenanceTickets.filter((t) => t.status === "OPEN")
+                      .length,
+                    icon: "🎫",
+                    bg: "from-yellow-500/20 to-orange-500/10",
+                  },
+                  {
+                    title: "Critical",
+                    value: maintenanceTickets.filter(
+                      (t) => t.severity === "HIGH" && t.status === "OPEN"
+                    ).length,
+                    icon: "⚠️",
+                    bg: "from-red-500/20 to-pink-500/10",
+                  },
+                  {
+                    title: "Healthy",
+                    value: state.vehicles.filter((v) => (v.tireWear || 0) < 50)
+                      .length,
+                    icon: "✅",
+                    bg: "from-green-500/20 to-emerald-500/10",
+                  },
+                ].map((stat, index) => (
+                  <motion.div
+                    key={stat.title}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 * index }}
+                    whileHover={{ y: -5, scale: 1.02 }}
+                    className="relative group"
+                  >
+                    <motion.div
+                      className={`absolute inset-0 bg-gradient-to-br ${stat.bg} rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`}
+                    />
+                    <div className="relative backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
+                      <motion.div
+                        whileHover={{ scale: 1.2, rotate: 10 }}
+                        className="text-3xl mb-3"
+                      >
+                        {stat.icon}
+                      </motion.div>
+                      <h3 className="text-3xl font-black text-white mb-1">
+                        {stat.value}
+                      </h3>
+                      <p className="text-white/60 text-sm font-semibold">
+                        {stat.title}
+                      </p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Charts & Alerts Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Maintenance Charts */}
+                <div className="lg:col-span-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                  <h2 className="text-2xl font-bold text-white mb-6">
+                    Maintenance Analytics
+                  </h2>
+                  <MaintenanceCharts
+                    vehicles={state.vehicles}
+                    tickets={maintenanceTickets}
+                  />
+                </div>
+
+                {/* Alerts Table */}
+                <div className="lg:col-span-1 backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                  <AlertsTable tickets={maintenanceTickets} />
+                </div>
+              </div>
+
+              {/* Vehicle Health Cards */}
+              <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                <h2 className="text-2xl font-bold text-white mb-6">
+                  Vehicle Health Status
+                </h2>
+
+                {state.vehicles.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">🔧</div>
+                    <p className="text-white/60">No vehicles to monitor</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {state.vehicles.map((vehicle, index) => (
+                      <motion.div
+                        key={vehicle.id}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: index * 0.05 }}
+                      >
+                        <VehicleHealthCard vehicle={vehicle} />
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

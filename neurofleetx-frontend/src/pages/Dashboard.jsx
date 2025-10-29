@@ -1,40 +1,58 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useGlobalState } from "../context/GlobalState.jsx";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 import AdminDashboard from "../components/dashboards/AdminDashboard";
 import ManagerDashboard from "../components/dashboards/ManagerDashboard";
 import DriverDashboard from "../components/dashboards/DriverDashboard";
 import CustomerDashboard from "../components/dashboards/CustomerDashboard";
 
 const Dashboard = () => {
-  const { state } = useGlobalState();
+  const { state, dispatch } = useGlobalState();
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log("🎯 Dashboard mounted");
-    console.log("📦 Full state:", state);
-    console.log("👤 User:", state.user);
-    console.log(
-      "🔑 Token from localStorage:",
-      localStorage.getItem("jwtToken")
-    );
-    console.log("🎭 Role from localStorage:", localStorage.getItem("role"));
-  }, [state]);
+    const fetchUser = async () => {
+      const token = localStorage.getItem("jwtToken");
+      const userId = localStorage.getItem("userId");
 
-  // Check if user exists in state
-  if (!state.user) {
-    console.warn("⚠️ No user in state!");
-    console.log("Checking localStorage...");
+      if (!token || !userId) {
+        navigate("/login", { replace: true });
+        return;
+      }
 
-    const token = localStorage.getItem("jwtToken");
-    const role = localStorage.getItem("role");
+      try {
+        const res = await axios.get(
+          `http://localhost:8080/api/users/${userId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
 
-    if (!token) {
-      console.error("❌ No token found, redirecting to login");
-      navigate("/login", { replace: true });
-      return null;
-    }
+        const userData = {
+          ...res.data,
+          roles: Array.isArray(res.data.roles) ? res.data.roles : [],
+        };
 
+        dispatch({ type: "SET_USER", payload: userData });
+        localStorage.setItem("user", JSON.stringify(userData));
+
+        // Only stop loading after user is set
+        setLoading(false);
+      } catch (err) {
+        console.error("Error fetching user:", err);
+        localStorage.removeItem("jwtToken");
+        localStorage.removeItem("userId");
+        navigate("/login", { replace: true });
+      }
+    };
+
+    fetchUser();
+  }, [dispatch, navigate]);
+
+  // If still loading, show loading screen
+  if (loading || !state.user) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-900">
         <div className="text-white text-xl">Loading user data...</div>
@@ -42,48 +60,34 @@ const Dashboard = () => {
     );
   }
 
-  // Check if roles exist
-  if (!state.user.roles || state.user.roles.length === 0) {
-    console.error("❌ No roles in user object:", state.user);
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-900">
-        <div className="text-red-400 text-xl">Error: No roles assigned</div>
-      </div>
-    );
+  const roles = Array.isArray(state.user?.roles) ? state.user.roles : [];
+  let role = "";
+
+  if (roles.length > 0) {
+    const firstRole = roles[0];
+    if (typeof firstRole === "string") {
+      role = firstRole.replace("ROLE_", "");
+    } else if (firstRole && firstRole.name) {
+      role = firstRole.name.replace("ROLE_", "");
+    }
   }
 
-  // Get role and strip "ROLE_" prefix
-  const fullRole = state.user.roles[0];
-  const role = fullRole.replace("ROLE_", "");
-
-  console.log("🎭 Full role:", fullRole);
-  console.log("🎭 Cleaned role:", role);
-
-  // Render appropriate dashboard
   switch (role) {
     case "ADMIN":
-      console.log("✅ Rendering AdminDashboard");
       return <AdminDashboard />;
-
     case "MANAGER":
-      console.log("✅ Rendering ManagerDashboard");
       return <ManagerDashboard />;
-
     case "DRIVER":
-      console.log("✅ Rendering DriverDashboard");
       return <DriverDashboard />;
-
     case "CUSTOMER":
-      console.log("✅ Rendering CustomerDashboard");
       return <CustomerDashboard />;
-
     default:
-      console.error("❌ Unknown role:", role);
       return (
         <div className="flex items-center justify-center h-screen bg-gray-900">
           <div className="text-red-400 text-xl">
-            <p>Unauthorized</p>
-            <p className="text-sm mt-2">Role: {role}</p>
+            Unauthorized
+            <br />
+            Role: {fullRole}
           </div>
         </div>
       );

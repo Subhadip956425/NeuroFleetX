@@ -15,5 +15,13 @@ public class VehicleType {
 
     @Column(unique = true, nullable = false)
     private String name;
+
+    private Boolean isEvType;
+
+    public VehicleType(Long id, String name) {
+        this.id = id;
+        this.name = name;
+        this.isEvType = false;
+    }
 }
 

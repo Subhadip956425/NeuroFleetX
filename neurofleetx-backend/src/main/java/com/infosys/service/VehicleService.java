@@ -2,6 +2,7 @@ package com.infosys.service;
 
 import com.infosys.dto.VehicleRequest;
 import com.infosys.dto.VehicleResponse;
+import com.infosys.model.Vehicle;
 
 import java.util.List;
 
@@ -16,6 +17,8 @@ public interface VehicleService {
     VehicleResponse getVehicle(Long id);
 
     List<VehicleResponse> listVehicles();
+
+    Vehicle getVehicleByDriverId(Long driverId);
 
     // Advanced APIs
     List<VehicleResponse> filterVehicles(Long typeId, Long statusId);

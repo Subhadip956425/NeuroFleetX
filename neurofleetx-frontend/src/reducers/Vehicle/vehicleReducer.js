@@ -25,13 +25,14 @@ export const vehicleReducer = (state, action) => {
       };
     case VehicleActionTypes.UPDATE_VEHICLE:
       const updatedAll = state.allVehicles.map((v) =>
-        v.id === action.payload.id ? action.payload : v
+        v.id === action.payload.id ? { ...v, ...action.payload } : v
       );
       return {
         ...state,
         allVehicles: updatedAll,
         filteredVehicles: applyFilters(updatedAll, state),
       };
+
     case VehicleActionTypes.DELETE_VEHICLE:
       const filteredAll = state.allVehicles.filter(
         (v) => v.id !== action.payload

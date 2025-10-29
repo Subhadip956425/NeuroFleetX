@@ -17,7 +17,7 @@ import {
   useTransform,
 } from "framer-motion";
 import "leaflet/dist/leaflet.css";
-import FleetMap from "../components/FleetMap";
+import FleetMap from "../components/map/FleetMap";
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;

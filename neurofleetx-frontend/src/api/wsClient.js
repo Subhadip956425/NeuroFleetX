@@ -1,26 +1,35 @@
-import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
+import { Stomp } from "@stomp/stompjs";
+import { config } from "../config/config";
 
 let stompClient = null;
 
-export const connectWebSocket = (onMessageReceived) => {
-  const socket = new SockJS("http://localhost:8080/ws-telemetry");
-  stompClient = new Client({
-    webSocketFactory: () => socket,
-    reconnectDelay: 5000,
-    debug: (str) => console.log(str),
-  });
+export const connectWebSocket = (onMessage) => {
+  if (!config.ENABLE_WEBSOCKET) {
+    console.log("ℹ️ WebSocket disabled in config");
+    return;
+  }
 
-  stompClient.onConnect = () => {
-    stompClient.subscribe("/topic/telemetry", (msg) => {
-      const vehicle = JSON.parse(msg.body);
-      onMessageReceived(vehicle);
+  try {
+    const socket = new SockJS(config.WS_TELEMETRY_URL);
+    stompClient = Stomp.over(socket);
+    stompClient.debug = () => {};
+
+    stompClient.connect({}, () => {
+      console.log("✅ Telemetry WebSocket connected");
+      stompClient.subscribe("/topic/telemetry", (message) => {
+        onMessage(JSON.parse(message.body));
+      });
     });
-  };
-
-  stompClient.activate();
+  } catch (error) {
+    console.warn(
+      "WebSocket connection failed, continuing without real-time updates"
+    );
+  }
 };
 
 export const disconnectWebSocket = () => {
-  if (stompClient) stompClient.deactivate();
+  if (stompClient?.connected) {
+    stompClient.disconnect();
+  }
 };
