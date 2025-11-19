@@ -34,19 +34,48 @@ public class Vehicle {
     private Double latitude;
     private Double longitude;
 
-//    Health analytics
+    // Health analytics
     private Double tireWear;
     private Double mileage;
 
     private LocalDateTime lastUpdated;
 
-    // ✅ ADD THIS: Direct driver ID field for easier queries
+    // ✅ Driver assignment
     @Column(name = "assigned_driver_id")
     private Long assignedDriverId;
 
-    // Keep the relationship for object access
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "assigned_driver_id", insertable = false, updatable = false)
     private User assignedDriver;
-}
 
+    // ✅ AI/ML Health Metrics (for predictive maintenance)
+    @Column(name = "engine_temp")
+    private Double engineTemp;
+
+    @Column(name = "tire_pressure")
+    private Double tirePressure;
+
+    @Column(name = "oil_level")
+    private Double oilLevel;
+
+    @Column(name = "brake_wear")
+    private Double brakeWear;
+
+    @Column(name = "days_since_last_maintenance")
+    private Integer daysSinceLastMaintenance;
+
+    // Maintenance tracking
+    @Column(name = "last_maintenance_date")
+    private LocalDateTime lastMaintenanceDate;
+
+    @Column(name = "next_maintenance_date")
+    private LocalDateTime nextMaintenanceDate;
+
+    @Column(name = "maintenance_status")
+    private String maintenanceStatus = "HEALTHY"; // HEALTHY, DUE, CRITICAL
+
+    private Long ownerId;
+
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}

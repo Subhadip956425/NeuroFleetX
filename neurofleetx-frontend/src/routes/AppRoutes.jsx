@@ -17,7 +17,15 @@ import ManagerDashboard from "../components/dashboards/ManagerDashboard";
 import DriverDashboard from "../components/dashboards/DriverDashboard";
 import CustomerDashboard from "../components/dashboards/CustomerDashboard";
 
+// ✅ NEW: Module 3, 4, 5 Pages
+import RouteOptimization from "../../src/components/Route/RouteOptimization";
+import BookingWizard from "../../src/components/booking/BookingWizard";
+import VehicleRecommendations from "../../src/components/booking/VehicleRecommendations";
+import MaintenanceAnalytics from "../../src/components/maintenance/MaintenanceAnalytics";
+
 import { getToken, getUserRole } from "../utils/auth";
+import ForgotPassword from "../pages/ForgotPassword";
+import ResetPassword from "../pages/ResetPassword";
 
 export default function AppRoutes() {
   // Simple private route for any logged-in user
@@ -28,21 +36,16 @@ export default function AppRoutes() {
   // Role-protected route
   const ProtectedRoute = ({ role, children }) => {
     const token = getToken();
-    const userRole = getUserRole(); // This now returns "ADMIN" not "ROLE_ADMIN"
-
-    console.log("🛡️ ProtectedRoute check:", { role, userRole, token: !!token });
+    const userRole = getUserRole();
 
     if (!token) {
-      console.log("❌ No token, redirecting to login");
       return <Navigate to="/login" />;
     }
 
     if (userRole !== role) {
-      console.log(`❌ Role mismatch: expected ${role}, got ${userRole}`);
       return <Navigate to="/dashboard" />;
     }
 
-    console.log("✅ Access granted");
     return children;
   };
 
@@ -52,6 +55,9 @@ export default function AppRoutes() {
         {/* 🔓 Public Routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* 🔒 General Protected Routes */}
         <Route
@@ -109,6 +115,44 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute role="CUSTOMER">
               <CustomerDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ✅ NEW: Module 3 - Route Optimization */}
+        <Route
+          path="/customer/route-optimization"
+          element={
+            <ProtectedRoute role="CUSTOMER">
+              <RouteOptimization />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ✅ NEW: Module 5 - Smart Booking */}
+        <Route
+          path="/customer/book"
+          element={
+            <ProtectedRoute role="CUSTOMER">
+              <BookingWizard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customer/recommendations"
+          element={
+            <ProtectedRoute role="CUSTOMER">
+              <VehicleRecommendations />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ✅ NEW: Module 4 - Maintenance Analytics */}
+        <Route
+          path="/manager/maintenance"
+          element={
+            <ProtectedRoute role="MANAGER">
+              <MaintenanceAnalytics />
             </ProtectedRoute>
           }
         />

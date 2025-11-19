@@ -16,6 +16,9 @@ import VehicleHealthCard from "../maintenance/VehicleHealthCard.jsx";
 
 import bookingApi from "../../api/bookingApi.js";
 
+import DriverRouteDashboard from "../Route/DriverRouteDashboard.jsx";
+import PredictiveMaintenancePanel from "../maintenance/PredictiveMaintenancePanel";
+
 import {
   motion,
   AnimatePresence,
@@ -53,11 +56,21 @@ const DriverDashboard = () => {
   const [maintenanceDescription, setMaintenanceDescription] = useState("");
   const [myMaintenanceTickets, setMyMaintenanceTickets] = useState([]);
 
+  // ✅ KEEP ONLY THESE STATE DECLARATIONS
   const [driverBookings, setDriverBookings] = useState([]);
   const [loadingBookingAction, setLoadingBookingAction] = useState(null);
   const [showBookingRejectModal, setShowBookingRejectModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [bookingRejectReason, setBookingRejectReason] = useState("");
+
+  const [vehiclePrediction, setVehiclePrediction] = useState(null);
+  const [showPredictionModal, setShowPredictionModal] = useState(false);
+
+  const [confirmedBookings, setConfirmedBookings] = useState([]);
+
+  // ✅ REMOVE THE DUPLICATE const [pendingBookings, setPendingBookings] = useState([]);
+
+  // ✅ Keep these computed values (NOT state, just useMemo/filter)
   const pendingBookings = driverBookings.filter((b) => b.status === "PENDING");
   const acceptedBookings = driverBookings.filter(
     (b) => b.status === "CONFIRMED"
@@ -130,6 +143,25 @@ const DriverDashboard = () => {
 
     loadMyTickets();
   }, []);
+
+  // ✅ NEW: Load AI prediction for driver's assigned vehicle
+  useEffect(() => {
+    if (assignedVehicle?.id) {
+      loadVehiclePrediction(assignedVehicle.id);
+    }
+  }, [assignedVehicle]);
+
+  const loadVehiclePrediction = async (vehicleId) => {
+    try {
+      console.log("🤖 Loading AI prediction for vehicle:", vehicleId);
+      const prediction = await maintenanceApi.getPrediction(vehicleId);
+      setVehiclePrediction(prediction);
+      console.log("✅ Prediction loaded:", prediction);
+    } catch (error) {
+      console.error("❌ Error loading vehicle prediction:", error);
+      setVehiclePrediction(null);
+    }
+  };
 
   // Animated particle background
   useEffect(() => {
@@ -221,73 +253,59 @@ const DriverDashboard = () => {
     return () => clearInterval(interval);
   }, [userId, driverVehicleTypes]);
 
+  // Inside DriverDashboard.jsx - Replace the booking loading section:
+
+  // ✅ CORRECT VERSION - Just set driverBookings
   const loadDriverBookings = async () => {
     try {
-      console.log("📦 Loading bookings for driver:", userId);
+      console.log("📋 Loading driver bookings...");
 
-      // Get PENDING bookings
-      const pendingRes = await bookingApi.getDriverAssignedBookings(userId);
-      const pending = Array.isArray(pendingRes.data)
-        ? pendingRes.data
-        : pendingRes.data
-        ? [pendingRes.data]
-        : [];
-      console.log("⏳ Pending bookings:", pending);
+      // ✅ Get pending bookings
+      let pending = [];
+      try {
+        const pendingRes = await bookingApi.getPendingBookings();
+        pending = Array.isArray(pendingRes)
+          ? pendingRes
+          : pendingRes.data || [];
+        console.log("📋 Pending bookings:", pending);
+      } catch (error) {
+        console.error("❌ Error loading pending bookings:", error);
+      }
 
-      // Get CONFIRMED bookings
-      const confirmedRes = await bookingApi.getDriverConfirmedBookings(userId);
-      const confirmed = Array.isArray(confirmedRes.data)
-        ? confirmedRes.data
-        : confirmedRes.data
-        ? [confirmedRes.data]
-        : [];
-      console.log("✅ Confirmed bookings:", confirmed);
+      // ✅ Get confirmed bookings
+      let confirmed = [];
+      try {
+        const confirmedRes = await bookingApi.getConfirmedBookings();
+        confirmed = Array.isArray(confirmedRes)
+          ? confirmedRes
+          : confirmedRes.data || [];
+        console.log("✅ Confirmed bookings:", confirmed);
+      } catch (error) {
+        console.error("❌ Error loading confirmed bookings:", error);
+      }
 
-      // Merge both arrays
+      // ✅ MERGE BOTH into driverBookings
       const allBookings = [...pending, ...confirmed];
-      console.log("📦 Total bookings:", allBookings.length, allBookings);
-
       setDriverBookings(allBookings);
-    } catch (err) {
-      console.error("Error loading driver bookings:", err);
-      setDriverBookings([]); // Set empty array on error
+      console.log("🎯 All bookings merged:", allBookings);
+    } catch (error) {
+      console.error("❌ Error loading driver bookings:", error);
+      setDriverBookings([]);
     }
   };
 
-  // Load accepted/confirmed bookings for this driver
-  const loadAcceptedBookings = async () => {
+  const handleAcceptBooking = async (bookingId) => {
+    // ✅ Changed parameter
     try {
-      const res = await bookingApi.getDriverConfirmedBookings(userId);
-      // Store in a separate state or filter in the same state
-      const accepted = res.data || res;
-      console.log("📦 Accepted bookings:", accepted);
+      setLoadingBookingAction(bookingId);
 
-      // Update the bookings state to include these
-      setDriverBookings((prev) => {
-        // Merge: remove duplicates and add new accepted ones
-        const allIds = new Set([
-          ...prev.map((b) => b.id),
-          ...accepted.map((b) => b.id),
-        ]);
-        return [...prev.filter((b) => b.status === "PENDING"), ...accepted];
-      });
-    } catch (err) {
-      console.error("Error loading accepted bookings:", err);
-    }
-  };
+      // ✅ Use corrected API call (no driverId in body)
+      const res = await bookingApi.acceptBooking(bookingId);
 
-  const handleAcceptBooking = async (booking) => {
-    try {
-      setLoadingBookingAction(booking.id);
+      console.log("✅ Booking accepted:", res);
 
-      const res = await bookingApi.driverAcceptBooking(booking.id, userId);
-
-      // ✅ Remove from pending bookings
-      setDriverBookings((prev) => prev.filter((b) => b.id !== booking.id));
-
-      // ✅ Reload both pending and accepted bookings
+      // ✅ Reload bookings immediately
       await loadDriverBookings();
-      await loadAcceptedBookings();
 
       alert("✅ Booking accepted successfully!");
     } catch (err) {
@@ -314,16 +332,22 @@ const DriverDashboard = () => {
 
     try {
       setLoadingBookingAction(selectedBooking.id);
-      const res = await bookingApi.driverRejectBooking(selectedBooking.id, {
-        driverId: userId,
-        reason: bookingRejectReason,
-      });
-      dispatch({ type: actionTypes.UPDATE_BOOKING, payload: res.data || res });
+
+      // ✅ FIXED: Only pass bookingId and reason (no driverId)
+      const res = await bookingApi.rejectBooking(
+        selectedBooking.id,
+        bookingRejectReason
+      );
+
+      console.log("❌ Booking rejected:", res);
       alert("❌ Booking rejected. It will be offered to other drivers.");
+
       setShowBookingRejectModal(false);
       setSelectedBooking(null);
       setBookingRejectReason("");
-      loadDriverBookings();
+
+      // ✅ Reload bookings
+      await loadDriverBookings();
     } catch (err) {
       console.error("Error rejecting booking:", err);
       alert(
@@ -349,37 +373,61 @@ const DriverDashboard = () => {
   const backgroundY = useTransform(mouseY, [0, window.innerHeight], [0, 100]);
 
   // Load vehicles and routes
+  // Load vehicles and routes
   useEffect(() => {
     const loadData = async () => {
       try {
-        // ✅ Fetch the vehicle assigned to this driver
-        const vehicle = await fetchDriverVehicle();
+        console.log("📍 Loading driver data...");
 
-        if (vehicle) {
-          dispatch({ type: actionTypes.SET_VEHICLES, payload: [vehicle] });
-          console.log("🚗 Driver's assigned vehicle:", vehicle);
+        // ✅ FIXED: Fetch vehicle assigned to THIS driver
+        const vehicle = await fetchDriverVehicle(userId); // ✅ Pass userId
+
+        console.log("🚗 Fetched vehicle:", vehicle);
+
+        if (vehicle && vehicle.id) {
+          // ✅ IMPORTANT: Set vehicles in state
+          dispatch({
+            type: actionTypes.SET_VEHICLES,
+            payload: [vehicle],
+          });
+          console.log("✅ Vehicle set to state:", vehicle);
         } else {
-          dispatch({ type: actionTypes.SET_VEHICLES, payload: [] });
-          console.log("ℹ️ No vehicle assigned to driver");
+          console.log("⚠️ No vehicle assigned to this driver");
+          dispatch({
+            type: actionTypes.SET_VEHICLES,
+            payload: [],
+          });
         }
 
         // ✅ Fetch driver's routes
-        if (userId) {
-          const res = await routeApi.getDriverRoutes(userId);
-          const routes = res.data || [];
-          setDriverRoutes(routes);
-          dispatch({ type: actionTypes.SET_ROUTES, payload: routes });
+        try {
+          if (userId) {
+            const routesRes = await routeApi.getDriverRoutes(userId);
+            const routes = Array.isArray(routesRes.data)
+              ? routesRes.data
+              : routesRes.data
+              ? [routesRes.data]
+              : [];
+            setDriverRoutes(routes);
+            dispatch({ type: actionTypes.SET_ROUTES, payload: routes });
+          }
+        } catch (routeError) {
+          console.error("Error loading routes:", routeError);
+          setDriverRoutes([]);
         }
       } catch (error) {
-        console.error("Error loading driver data:", error);
+        console.error("❌ Error loading driver data:", error);
         dispatch({ type: actionTypes.SET_VEHICLES, payload: [] });
         setDriverRoutes([]);
       }
     };
 
-    loadData();
+    // ✅ Call loadData when userId is available
+    if (userId) {
+      loadData();
+    }
 
-    // ✅ Reconnect WebSocket for live updates
+    // ✅ Reconnect WebSocket
     connectWebSocket((data) =>
       dispatch({ type: actionTypes.UPDATE_TELEMETRY, payload: data })
     );
@@ -387,7 +435,6 @@ const DriverDashboard = () => {
     // ✅ WebSocket for route updates
     if (typeof connectRouteSocket === "function") {
       connectRouteSocket((data) => {
-        // Update route if it belongs to this driver
         if (data.assignedDriverId === userId || data.driverId === userId) {
           setDriverRoutes((prev) => {
             const exists = prev.some((r) => r.id === data.id);
@@ -405,7 +452,7 @@ const DriverDashboard = () => {
         disconnectRouteSocket();
       }
     };
-  }, [dispatch, userId]);
+  }, [dispatch, userId]); // ✅ ADD userId as dependency
 
   // Load route data from web socket
   useEffect(() => {
@@ -650,6 +697,16 @@ const DriverDashboard = () => {
                   </motion.button>
                 ))}
               </div>
+
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => navigate("/customer/route-optimization")}
+                className="px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
+              >
+                <span className="mr-2">🗺️</span>
+                Route Optimizer
+              </motion.button>
 
               {/* User Menu */}
               <div className="relative z-[100]">
@@ -1093,6 +1150,11 @@ const DriverDashboard = () => {
                                 <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-bold">
                                   CONFIRMED
                                 </span>
+                                {booking.isPaid && (
+                                  <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold border border-green-500/30">
+                                    ✅ Paid
+                                  </span>
+                                )}
                               </div>
                               <div className="space-y-1 text-sm text-white/70">
                                 <div>📍 {booking.pickupLocation}</div>
@@ -1123,125 +1185,16 @@ const DriverDashboard = () => {
             </motion.div>
           )}
 
+          {/* ✅ ROUTES VIEW - NEW INTEGRATION */}
           {viewMode === "routes" && (
             <motion.div
               key="routes"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
+              className="w-full"
             >
-              {/* Routes Map */}
-              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                <h2 className="text-2xl font-bold text-white mb-4">
-                  My Routes
-                </h2>
-                <FleetMap
-                  vehicles={assignedVehicle ? [assignedVehicle] : []}
-                  routes={myRoutes}
-                  height="400px"
-                  showControls={true}
-                  showLegend={true}
-                  defaultStyle="dark"
-                />
-              </motion.div>
-
-              {/* Routes List with Status Update */}
-              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                <h2 className="text-2xl font-bold text-white mb-6">
-                  Assigned Routes
-                </h2>
-
-                {myRoutes.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🗺️</div>
-                    <p className="text-white/60">No routes assigned yet</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {myRoutes.map((route, index) => (
-                      <motion.div
-                        key={route.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-xl p-4"
-                      >
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          {/* Route Info */}
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <h3 className="text-white font-bold text-lg">
-                                📍 {route.origin} → {route.destination}
-                              </h3>
-                              <span
-                                className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                                  route.status === "ASSIGNED"
-                                    ? "bg-blue-500/20 text-blue-400"
-                                    : route.status === "IN_PROGRESS"
-                                    ? "bg-yellow-500/20 text-yellow-400"
-                                    : route.status === "COMPLETED"
-                                    ? "bg-green-500/20 text-green-400"
-                                    : "bg-gray-500/20 text-gray-400"
-                                }`}
-                              >
-                                {route.status}
-                              </span>
-                            </div>
-
-                            <div className="flex flex-wrap gap-4 text-sm text-white/60">
-                              <span>
-                                ⏱️ ETA:{" "}
-                                {route.predictedEta
-                                  ? `${Math.round(route.predictedEta)} mins`
-                                  : "Calculating..."}
-                              </span>
-                              {route.distanceKm && (
-                                <span>📏 {route.distanceKm} km</span>
-                              )}
-                              <span>
-                                🚗 Vehicle: #
-                                {route.vehicleId || route.assignedVehicleId}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Action Buttons */}
-                          <div className="flex gap-2 flex-wrap">
-                            {route.status === "ASSIGNED" && (
-                              <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => handleStartRoute(route.id)}
-                                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all"
-                              >
-                                ▶️ Start Route
-                              </motion.button>
-                            )}
-
-                            {route.status === "IN_PROGRESS" && (
-                              <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => handleCompleteRoute(route.id)}
-                                className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all"
-                              >
-                                ✅ Mark Completed
-                              </motion.button>
-                            )}
-
-                            {route.status === "COMPLETED" && (
-                              <div className="px-4 py-2 bg-green-500/10 border border-green-500/30 text-green-400 font-semibold rounded-lg">
-                                ✅ Completed
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
+              <DriverRouteDashboard />
             </motion.div>
           )}
 
@@ -1372,10 +1325,176 @@ const DriverDashboard = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
             >
+              {/* ✅ AI Health Status Card */}
+              {vehiclePrediction?.data && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  whileHover={{ scale: 1.02 }}
+                  onClick={() => setShowPredictionModal(true)}
+                  className={`backdrop-blur-xl border rounded-3xl p-8 cursor-pointer transition-all ${
+                    vehiclePrediction.data.status === "Critical"
+                      ? "bg-red-500/10 border-red-500/30 hover:border-red-500/50"
+                      : vehiclePrediction.data.status === "Due"
+                      ? "bg-orange-500/10 border-orange-500/30 hover:border-orange-500/50"
+                      : "bg-green-500/10 border-green-500/30 hover:border-green-500/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-3xl font-bold text-white flex items-center gap-3">
+                      🤖 AI Health Prediction
+                      <span
+                        className={`px-4 py-2 rounded-full text-lg ${
+                          vehiclePrediction.data.status === "Critical"
+                            ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                            : vehiclePrediction.data.status === "Due"
+                            ? "bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                            : "bg-green-500/20 text-green-400 border border-green-500/30"
+                        }`}
+                      >
+                        {vehiclePrediction.data.status}
+                      </span>
+                    </h3>
+                    <div className="text-6xl">
+                      {vehiclePrediction.data.status === "Critical"
+                        ? "🚨"
+                        : vehiclePrediction.data.status === "Due"
+                        ? "⚠️"
+                        : "✅"}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
+                    <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-xl p-4">
+                      <p className="text-white/60 text-sm mb-2">Health Score</p>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${
+                              vehiclePrediction.data.health_score >= 80
+                                ? "bg-green-500"
+                                : vehiclePrediction.data.health_score >= 60
+                                ? "bg-yellow-500"
+                                : "bg-red-500"
+                            }`}
+                            style={{
+                              width: `${vehiclePrediction.data.health_score}%`,
+                            }}
+                          />
+                        </div>
+                        <span
+                          className={`text-2xl font-bold ${
+                            vehiclePrediction.data.health_score >= 80
+                              ? "text-green-400"
+                              : vehiclePrediction.data.health_score >= 60
+                              ? "text-yellow-400"
+                              : "text-red-400"
+                          }`}
+                        >
+                          {vehiclePrediction.data.health_score}%
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-xl p-4">
+                      <p className="text-white/60 text-sm mb-2">Next Service</p>
+                      <p className="text-xl font-bold text-white">
+                        {new Date(
+                          vehiclePrediction.data.next_maintenance_date
+                        ).toLocaleDateString()}
+                      </p>
+                    </div>
+
+                    <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-xl p-4">
+                      <p className="text-white/60 text-sm mb-2">
+                        Days Remaining
+                      </p>
+                      <p
+                        className={`text-2xl font-bold ${
+                          vehiclePrediction.data.days_until_maintenance <= 3
+                            ? "text-red-400"
+                            : vehiclePrediction.data.days_until_maintenance <=
+                              14
+                            ? "text-orange-400"
+                            : "text-green-400"
+                        }`}
+                      >
+                        {vehiclePrediction.data.days_until_maintenance} days
+                      </p>
+                    </div>
+
+                    <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-xl p-4">
+                      <p className="text-white/60 text-sm mb-2">
+                        ML Confidence
+                      </p>
+                      <p className="text-2xl font-bold text-cyan-400">
+                        {vehiclePrediction.data.ml_confidence}%
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Critical Issues Alert */}
+                  {vehiclePrediction.data.critical_issues &&
+                    vehiclePrediction.data.critical_issues.length > 0 && (
+                      <div className="bg-red-500/20 border border-red-500/40 rounded-xl p-4 mb-6">
+                        <h4 className="text-red-400 font-bold mb-2 flex items-center gap-2">
+                          🚨 {vehiclePrediction.data.critical_issues.length}{" "}
+                          Critical Issue
+                          {vehiclePrediction.data.critical_issues.length > 1
+                            ? "s"
+                            : ""}
+                        </h4>
+                        {vehiclePrediction.data.critical_issues
+                          .slice(0, 2)
+                          .map((issue, idx) => (
+                            <p key={idx} className="text-red-300 text-sm">
+                              • {issue.component}: {issue.issue} -{" "}
+                              {issue.action}
+                            </p>
+                          ))}
+                        {vehiclePrediction.data.critical_issues.length > 2 && (
+                          <p className="text-red-400 text-xs mt-2">
+                            +{vehiclePrediction.data.critical_issues.length - 2}{" "}
+                            more issues
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                  {/* Warnings */}
+                  {vehiclePrediction.data.warnings &&
+                    vehiclePrediction.data.warnings.length > 0 && (
+                      <div className="bg-orange-500/20 border border-orange-500/40 rounded-xl p-4 mb-6">
+                        <h4 className="text-orange-400 font-bold mb-2 flex items-center gap-2">
+                          ⚠️ {vehiclePrediction.data.warnings.length} Warning
+                          {vehiclePrediction.data.warnings.length > 1
+                            ? "s"
+                            : ""}
+                        </h4>
+                        {vehiclePrediction.data.warnings
+                          .slice(0, 2)
+                          .map((warning, idx) => (
+                            <p key={idx} className="text-orange-300 text-sm">
+                              • {warning.component}: {warning.issue}
+                            </p>
+                          ))}
+                      </div>
+                    )}
+
+                  <div className="text-center">
+                    <p className="text-white/60 text-sm">
+                      Click for detailed AI analysis and recommendations →
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Original Vehicle Health Card */}
               <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
                 <h2 className="text-2xl font-bold text-white mb-6">
-                  ❤️ Vehicle Health Status
+                  📊 Real-Time Metrics
                 </h2>
                 <VehicleHealthCard vehicle={assignedVehicle} />
               </motion.div>
@@ -1630,6 +1749,45 @@ const DriverDashboard = () => {
                   {loadingBookingAction ? "⏳ Processing..." : "Confirm Reject"}
                 </motion.button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showPredictionModal && assignedVehicle && vehiclePrediction && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowPredictionModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-5xl w-full max-h-[90vh] overflow-y-auto backdrop-blur-xl bg-gray-900/95 border border-white/20 rounded-3xl p-8"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-3xl font-bold text-white flex items-center gap-3">
+                  🤖 AI Maintenance Analysis
+                  <span className="text-cyan-400">
+                    • Vehicle #{assignedVehicle.id}
+                  </span>
+                </h2>
+                <motion.button
+                  whileHover={{ scale: 1.1, rotate: 90 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => setShowPredictionModal(false)}
+                  className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-all text-2xl"
+                >
+                  ✕
+                </motion.button>
+              </div>
+
+              <PredictiveMaintenancePanel vehicleId={assignedVehicle.id} />
             </motion.div>
           </motion.div>
         )}

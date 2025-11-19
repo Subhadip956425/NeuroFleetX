@@ -1,16 +1,29 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import bookingApi from "../../api/bookingApi";
-import { useGlobalState, actionTypes } from "../../context/GlobalState";
+import { useGlobalState } from "../../context/GlobalState";
 
 export default function BookingManager() {
-  const { state, dispatch } = useGlobalState();
+  const { state } = useGlobalState();
+
+  // ✅ Get manager ID from global state
+  const managerId = state.user?.id;
+
+  // ✅ STATE DECLARATIONS
+  const [bookings, setBookings] = useState([]); // ✅ ADD THIS
+  const [loading, setLoading] = useState(false); // ✅ ADD THIS
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
   const [loadingAction, setLoadingAction] = useState(null);
+
+  // DEBUG: Log manager ID
+  useEffect(() => {
+    console.log("👤 Manager ID:", managerId);
+    console.log("👤 State user:", state.user);
+  }, [state.user, managerId]);
 
   // Helper function to safely get vehicle type name
   const getVehicleTypeName = (vehicleType) => {
@@ -29,16 +42,42 @@ export default function BookingManager() {
     return () => clearInterval(interval);
   }, []);
 
+  // ✅ FIXED: Load all bookings
   const loadBookings = async () => {
     try {
+      setLoading(true);
+
+      // ✅ Get all bookings for manager
       const res = await bookingApi.getAllBookings();
-      dispatch({ type: actionTypes.SET_BOOKINGS, payload: res.data || res });
-    } catch (err) {
-      console.error("Error loading bookings:", err);
+      const allBookings = Array.isArray(res) ? res : res.data || [];
+
+      setBookings(allBookings);
+      console.log("📋 Bookings loaded:", allBookings);
+    } catch (error) {
+      console.error("Error loading bookings:", error);
+      alert("Failed to load bookings");
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ✅ Check role INSIDE the component's main return
+  // ✅ FIXED: Filter bookings using bookings state
+  const pendingBookings = useMemo(
+    () => bookings.filter((b) => b.status === "PENDING"),
+    [bookings]
+  );
+
+  const confirmedBookings = useMemo(
+    () => bookings.filter((b) => b.status === "CONFIRMED"),
+    [bookings]
+  );
+
+  const cancelledBookings = useMemo(
+    () => bookings.filter((b) => b.status === "CANCELLED"),
+    [bookings]
+  );
+
+  // ✅ Check role
   const userRole = localStorage.getItem("role");
   if (userRole !== "MANAGER" && userRole !== "ROLE_MANAGER") {
     return (
@@ -56,45 +95,56 @@ export default function BookingManager() {
 
   const confirmReject = async () => {
     if (!rejectReason.trim()) {
-      alert("Please provide a reason for rejection");
+      alert("⚠️ Please provide a reason");
+      return;
+    }
+
+    if (!managerId) {
+      alert("❌ Manager ID not found. Please log in again.");
       return;
     }
 
     try {
       setLoadingAction(selectedBooking.id);
-      const res = await bookingApi.managerRejectBooking(selectedBooking.id, {
-        managerId: state.user?.id || localStorage.getItem("userId"),
-        reason: rejectReason,
-        rejectedBy: "MANAGER", // Important: tracks who rejected
-      });
 
-      dispatch({ type: actionTypes.UPDATE_BOOKING, payload: res.data || res });
-      alert("❌ Booking rejected! Removed from driver queue.");
+      // ✅ FIXED: Pass THREE parameters
+      await bookingApi.managerRejectBooking(
+        selectedBooking.id, // bookingId
+        managerId, // managerId
+        rejectReason // reason
+      );
+
+      console.log("✅ Booking cancelled");
+      alert("✅ Booking cancelled successfully");
+
       setShowRejectModal(false);
-      setSelectedBooking(null);
       setRejectReason("");
-      loadBookings();
-    } catch (err) {
-      console.error("Error rejecting booking:", err);
+      setSelectedBooking(null);
+
+      // Reload bookings
+      await loadBookings();
+    } catch (error) {
+      console.error("❌ Error rejecting booking:", error);
+      console.error("Full error response:", error.response?.data); // Log full error
       alert(
-        "Failed to reject booking: " +
-          (err.response?.data?.message || err.message)
+        "❌ Failed to reject booking: " +
+          (error.response?.data?.message || error.message)
       );
     } finally {
       setLoadingAction(null);
     }
   };
 
-  // Filter bookings
-  const filteredBookings = (state.bookings || []).filter((booking) => {
-    const vehicleTypeName = getVehicleTypeName(booking.vehicleType); // ✅ Convert to string first
+  // ✅ FIXED: Filter bookings using bookings state
+  const filteredBookings = bookings.filter((booking) => {
+    const vehicleTypeName = getVehicleTypeName(booking.vehicleType);
 
     const matchesSearch =
       booking.customerId
         ?.toString()
         .toLowerCase()
         .includes(searchQuery.toLowerCase()) ||
-      vehicleTypeName?.toLowerCase().includes(searchQuery.toLowerCase()) || // ✅ FIXED
+      vehicleTypeName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       booking.pickupLocation?.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesStatus =
@@ -104,16 +154,16 @@ export default function BookingManager() {
     return matchesSearch && matchesStatus;
   });
 
-  // Statistics
+  // ✅ FIXED: Statistics using bookings state
   const stats = {
-    total: state.bookings?.length || 0,
-    pending: state.bookings?.filter((b) => b.status === "PENDING").length || 0,
-    confirmed:
-      state.bookings?.filter((b) => b.status === "CONFIRMED").length || 0,
-    rejected:
-      state.bookings?.filter((b) => b.status === "REJECTED").length || 0,
-    completed:
-      state.bookings?.filter((b) => b.status === "COMPLETED").length || 0,
+    total: bookings?.length || 0,
+    pending: bookings?.filter((b) => b.status === "PENDING").length || 0,
+    confirmed: bookings?.filter((b) => b.status === "CONFIRMED").length || 0,
+    cancelled: bookings?.filter((b) => b.status === "CANCELLED").length || 0,
+    completed: bookings?.filter((b) => b.status === "COMPLETED").length || 0,
+    // ✅ NEW: Payment stats
+    paid: bookings?.filter((b) => b.isPaid).length || 0,
+    unpaid: bookings?.filter((b) => !b.isPaid).length || 0,
   };
 
   const getStatusColor = (status) => {
@@ -122,7 +172,8 @@ export default function BookingManager() {
         "from-yellow-500/20 to-orange-500/10 text-yellow-400 border-yellow-500/30",
       CONFIRMED:
         "from-green-500/20 to-emerald-500/10 text-green-400 border-green-500/30",
-      REJECTED: "from-red-500/20 to-pink-500/10 text-red-400 border-red-500/30",
+      CANCELLED:
+        "from-red-500/20 to-pink-500/10 text-red-400 border-red-500/30",
       COMPLETED:
         "from-blue-500/20 to-cyan-500/10 text-blue-400 border-blue-500/30",
     };
@@ -143,7 +194,7 @@ export default function BookingManager() {
               📋 Booking Oversight & Control
             </h2>
             <p className="text-white/60 text-sm mt-1">
-              Review bookings • Reject to prevent driver assignment • Monitor
+              Review bookings • Cancel to prevent driver assignment • Monitor
               all activities
             </p>
           </div>
@@ -151,9 +202,10 @@ export default function BookingManager() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={loadBookings}
-            className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all"
+            disabled={loading}
+            className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
           >
-            🔄 Refresh
+            {loading ? "⏳ Loading..." : "🔄 Refresh"}
           </motion.button>
         </div>
       </motion.div>
@@ -180,8 +232,8 @@ export default function BookingManager() {
             bg: "from-green-500/20 to-emerald-500/10",
           },
           {
-            title: "Rejected",
-            value: stats.rejected,
+            title: "Cancelled",
+            value: stats.cancelled,
             icon: "❌",
             bg: "from-red-500/20 to-pink-500/10",
           },
@@ -190,6 +242,18 @@ export default function BookingManager() {
             value: stats.completed,
             icon: "✔️",
             bg: "from-blue-500/20 to-cyan-500/10",
+          },
+          {
+            title: "Paid",
+            value: stats.paid,
+            icon: "💰",
+            bg: "from-green-500/20 to-emerald-500/10",
+          },
+          {
+            title: "Unpaid",
+            value: stats.unpaid,
+            icon: "⏰",
+            bg: "from-orange-500/20 to-yellow-500/10",
           },
         ].map((stat, index) => (
           <motion.div
@@ -242,7 +306,7 @@ export default function BookingManager() {
               { value: "all", label: "All" },
               { value: "pending", label: "Pending" },
               { value: "confirmed", label: "Confirmed" },
-              { value: "rejected", label: "Rejected" },
+              { value: "cancelled", label: "Cancelled" },
             ].map((filter) => (
               <motion.button
                 key={filter.value}
@@ -304,6 +368,17 @@ export default function BookingManager() {
                       >
                         {booking.status?.toUpperCase()}
                       </span>
+                      {/* ✅ NEW: Payment Status Badge */}
+                      {booking.isPaid ? (
+                        <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold border border-green-500/30">
+                          ✅ Paid
+                        </span>
+                      ) : (
+                        <span className="px-3 py-1 bg-orange-500/20 text-orange-400 rounded-full text-xs font-semibold border border-orange-500/30">
+                          💳 Unpaid
+                        </span>
+                      )}
+
                       <span className="text-sm text-white/60">
                         🚗 {getVehicleTypeName(booking.vehicleType)}
                       </span>
@@ -354,6 +429,19 @@ export default function BookingManager() {
                           {new Date(booking.endTime).toLocaleString()}
                         </span>
                       </div>
+                      {/* ✅ NEW: Payment Status Row */}
+                      <div>
+                        <span className="text-white/50">💰 Payment:</span>{" "}
+                        {booking.isPaid ? (
+                          <span className="font-bold text-green-400">
+                            ✅ Paid (₹{booking.price?.toFixed(2)})
+                          </span>
+                        ) : (
+                          <span className="font-bold text-orange-400">
+                            ⏳ Pending (₹{booking.price?.toFixed(2)})
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Workflow Status Info */}
@@ -370,7 +458,7 @@ export default function BookingManager() {
                     {booking.rejectReason && (
                       <div className="mt-2 p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
                         <p className="text-xs text-red-400">
-                          <strong>Rejected by:</strong>{" "}
+                          <strong>Cancelled by:</strong>{" "}
                           {booking.rejectedBy || "Manager"}
                           <br />
                           <strong>Reason:</strong> {booking.rejectReason}
@@ -390,12 +478,12 @@ export default function BookingManager() {
                         disabled={loadingAction === booking.id}
                         className="flex-1 lg:flex-none px-4 py-2 bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {loadingAction === booking.id ? "⏳" : "❌ Reject"}
+                        {loadingAction === booking.id ? "⏳" : "❌ Cancel"}
                       </motion.button>
                     )}
-                    {booking.status === "REJECTED" && (
+                    {booking.status === "CANCELLED" && (
                       <div className="px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-center font-semibold text-sm">
-                        ❌ Rejected
+                        ❌ Cancelled
                       </div>
                     )}
                   </div>
@@ -406,7 +494,7 @@ export default function BookingManager() {
         )}
       </div>
 
-      {/* Reject Modal - Same as before */}
+      {/* Reject Modal */}
       <AnimatePresence>
         {showRejectModal && (
           <motion.div
@@ -434,7 +522,7 @@ export default function BookingManager() {
               </motion.div>
 
               <h2 className="text-2xl font-black text-white text-center mb-3">
-                Reject Booking?
+                Cancel Booking?
               </h2>
               <p className="text-white/70 text-center mb-6">
                 Booking #{selectedBooking?.id} •{" "}
@@ -447,12 +535,12 @@ export default function BookingManager() {
 
               <div className="mb-6">
                 <label className="block text-white/80 text-sm mb-2 font-semibold">
-                  Reason for Rejection * (Manager Override)
+                  Reason for Cancellation * (Manager Override)
                 </label>
                 <textarea
                   value={rejectReason}
                   onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="Enter reason for rejecting this booking..."
+                  placeholder="Enter reason for cancelling this booking..."
                   rows="4"
                   className="w-full p-3 bg-white/10 text-white border border-white/20 rounded-xl focus:outline-none focus:border-red-500 placeholder:text-white/40"
                 />
@@ -465,7 +553,7 @@ export default function BookingManager() {
                   onClick={() => setShowRejectModal(false)}
                   className="flex-1 px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-white font-bold rounded-xl hover:bg-white/20 transition-all"
                 >
-                  Cancel
+                  Back
                 </motion.button>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -474,7 +562,7 @@ export default function BookingManager() {
                   disabled={loadingAction}
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {loadingAction ? "⏳ Processing..." : "Confirm Reject"}
+                  {loadingAction ? "⏳ Processing..." : "Confirm Cancel"}
                 </motion.button>
               </div>
             </motion.div>

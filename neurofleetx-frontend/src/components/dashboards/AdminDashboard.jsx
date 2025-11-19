@@ -7,425 +7,204 @@ import FleetMap from "../map/FleetMap.jsx";
 import VehicleCard from "../../components/VehicleCard";
 import VehicleModal from "../../components/VehicleModal";
 import VehicleDashboardKPIs from "../../components/VehicleDashboardKPIs";
-import {
-  motion,
-  AnimatePresence,
-  useMotionValue,
-  useTransform,
-} from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import axiosInstance from "../../api/axiosInstance.js";
 import routeApi from "../../api/routeApi.js";
 import RouteMap from "../map/RouteMap.jsx";
-
 import MaintenanceCharts from "../maintenance/MaintenanceCharts.jsx";
 import AlertsTable from "../maintenance/AlertsTable.jsx";
 import VehicleHealthCard from "../maintenance/VehicleHealthCard.jsx";
 import maintenanceApi from "../../api/maintenanceApi.js";
 import HourlyActivityChart from "../analytics/HourlyActivityChart.jsx";
 import ExportReports from "../analytics/ExportReports.jsx";
+import BookingManager from "../booking/AdminBookingManager.jsx";
+import FleetHeatmap from "../analytics/FleetHeatmap.jsx";
+import RevenueAnalytics from "../analytics/RevenueAnalytics.jsx";
+import AIMaintenanceDashboard from "../maintenance/AIMaintenanceDashboard";
 
 const AdminDashboard = () => {
   const { state, dispatch } = useGlobalState();
   const navigate = useNavigate();
 
-  // State management
-  const [showModal, setShowModal] = useState(false);
+  // State
+  const [viewMode, setViewMode] = useState("analytics");
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
-  const [viewMode, setViewMode] = useState("grid");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [deleteConfirm, setDeleteConfirm] = useState({
-    show: false,
-    vehicleId: null,
-    vehicleName: "",
-  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [routes, setRoutes] = useState([]);
+  const [selectedRoute, setSelectedRoute] = useState(null);
+  const [tickets, setTickets] = useState([]);
+  const [resolvedTickets, setResolvedTickets] = useState([]);
+
+  // ✅ Logout state - like Manager
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const canvasRef = useRef(null);
-  const mouseX = useMotionValue(0);
-  const mouseY = useMotionValue(0);
-
-  // API Configuration
-  const API_URL = "http://localhost:8080/api/vehicles";
-  const userRole = localStorage.getItem("role") || "ADMIN";
-  const userEmail = state.user?.email || "admin@neurofleetx.com";
-
-  // Add these state variables at the top with other state declarations
-  const [statusFilter, setStatusFilter] = useState("");
-  const [driverFilter, setDriverFilter] = useState("");
-  const [drivers, setDrivers] = useState([]);
-  const [selectedAssignment, setSelectedAssignment] = useState({});
-
-  // Add with other state declarations
-  const [maintenanceTickets, setMaintenanceTickets] = useState([]);
-
-  // ADD this with your existing state declarations (around line 30)
-  const [activeAnalyticsTab, setActiveAnalyticsTab] = useState("overview");
-
-  // Add useEffect to load routes and drivers
-  useEffect(() => {
-    const loadRoutesAndDrivers = async () => {
-      try {
-        // Load all routes
-        const routesRes = await routeApi.getManagerRoutes();
-        dispatch({
-          type: actionTypes.SET_ROUTES,
-          payload: routesRes.data || [],
-        });
-
-        // Load all drivers
-        const driversRes = await axiosInstance.get("/admin/users");
-        setDrivers(driversRes.data || []);
-      } catch (error) {
-        console.error("Error loading routes and drivers:", error);
-      }
-    };
-
-    loadRoutesAndDrivers();
-  }, [dispatch]);
-
-  // Add maintenance data loading
-  useEffect(() => {
-    const loadMaintenanceData = async () => {
-      try {
-        const tickets = await maintenanceApi.getOpenTickets();
-        setMaintenanceTickets(tickets.data || tickets || []);
-        dispatch({
-          type: actionTypes.SET_TICKETS,
-          payload: tickets.data || tickets || [],
-        });
-      } catch (error) {
-        console.error("Error loading maintenance data:", error);
-        setMaintenanceTickets([]);
-      }
-    };
-
-    loadMaintenanceData();
-  }, [dispatch]);
-
-  // Add filter handler
-  const handleFilterRoutes = async () => {
-    try {
-      const filtered = await routeApi.filterRoutes(
-        statusFilter,
-        driverFilter || null
-      );
-      dispatch({
-        type: actionTypes.SET_ROUTES,
-        payload: filtered.data || filtered,
-      });
-    } catch (error) {
-      console.error("Error filtering routes:", error);
-    }
-  };
-
-  // Add assignment handler
-  const handleAssignRoute = async (routeId) => {
-    const assignment = selectedAssignment[routeId];
-
-    if (!assignment?.vehicleId || !assignment?.driverId) {
-      alert("Please select both vehicle and driver");
-      return;
-    }
-
-    try {
-      await routeApi.assignRoute(
-        routeId,
-        assignment.driverId,
-        assignment.vehicleId
-      );
-      alert("Route assigned successfully!");
-
-      // Reload routes
-      const routesRes = await routeApi.getManagerRoutes();
-      dispatch({ type: actionTypes.SET_ROUTES, payload: routesRes.data || [] });
-
-      // Clear selection
-      setSelectedAssignment((prev) => {
-        const newState = { ...prev };
-        delete newState[routeId];
-        return newState;
-      });
-    } catch (error) {
-      console.error("Error assigning route:", error);
-      alert("Failed to assign route");
-    }
-  };
-
-  // Animated particle background
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    const particles = [];
-    const particleCount = 30;
-
-    class Particle {
-      constructor() {
-        this.x = Math.random() * canvas.width;
-        this.y = Math.random() * canvas.height;
-        this.vx = (Math.random() - 0.5) * 0.5;
-        this.vy = (Math.random() - 0.5) * 0.5;
-        this.radius = Math.random() * 2 + 1;
-        this.opacity = Math.random() * 0.5 + 0.2;
-      }
-
-      update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
-        if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
-      }
-
-      draw() {
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(59, 130, 246, ${this.opacity})`;
-        ctx.fill();
-      }
-    }
-
-    for (let i = 0; i < particleCount; i++) {
-      particles.push(new Particle());
-    }
-
-    function animate() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      particles.forEach((particle) => {
-        particle.update();
-        particle.draw();
-      });
-
-      particles.forEach((p1, i) => {
-        particles.slice(i + 1).forEach((p2) => {
-          const dx = p1.x - p2.x;
-          const dy = p1.y - p2.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-
-          if (distance < 150) {
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(59, 130, 246, ${
-              0.15 * (1 - distance / 150)
-            })`;
-            ctx.lineWidth = 1;
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.stroke();
-          }
-        });
-      });
-
-      requestAnimationFrame(animate);
-    }
-
-    animate();
-
-    const handleResize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Mouse tracking
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      mouseX.set(e.clientX);
-      mouseY.set(e.clientY);
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, [mouseX, mouseY]);
-
-  const backgroundX = useTransform(mouseX, [0, window.innerWidth], [0, 100]);
-  const backgroundY = useTransform(mouseY, [0, window.innerHeight], [0, 100]);
-
-  // Load vehicles and connect WebSocket
-  useEffect(() => {
-    const loadVehicles = async () => {
-      const vehicles = await fetchVehicles();
-      dispatch({ type: actionTypes.SET_VEHICLES, payload: vehicles });
-    };
-    loadVehicles();
-    connectWebSocket((data) =>
-      dispatch({ type: actionTypes.UPDATE_TELEMETRY, payload: data })
-    );
-  }, [dispatch]);
-
-  // Load route data from web socket
-  useEffect(() => {
-    connectWebSocket((routeUpdate) => {
-      dispatch({ type: actionTypes.UPDATE_ROUTE, payload: routeUpdate });
-    });
-  }, [dispatch]);
-
-  // Filter vehicles
-  const filteredVehicles = state.vehicles.filter((vehicle) => {
-    const matchesSearch = vehicle.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    const matchesStatus =
-      filterStatus === "all" ||
-      vehicle.status.toLowerCase().replace(/\s+/g, "") ===
-        filterStatus.toLowerCase();
-    return matchesSearch && matchesStatus;
+  const [alertStats, setAlertStats] = useState({
+    critical: 0,
+    high: 0,
+    medium: 0,
+    total: 0,
+    resolved: 0,
   });
 
-  // Vehicle CRUD operations
+  const wsRef = useRef(null);
+
+  // User info
+  const userRole = localStorage.getItem("role") || "ADMIN";
+  const userEmail = state.user?.username || "admin@neurofleetx.com";
+
+  // ✅ Updated loadVehicles with role awareness
+  const loadVehicles = async (role = "ADMIN") => {
+    try {
+      setIsLoading(true);
+      console.log(`📡 Loading vehicles for ${role}`);
+
+      const vehicles = await fetchVehicles(role);
+
+      dispatch({
+        type: actionTypes.SET_VEHICLES,
+        payload: vehicles || [],
+      });
+      console.log(`✅ Loaded ${vehicles.length} vehicles`);
+    } catch (error) {
+      console.error("❌ Error loading vehicles:", error);
+      alert("Failed to load vehicles. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadRoutes = async () => {
+    try {
+      const response = await routeApi.getAllRoutes();
+      setRoutes(response.data);
+    } catch (error) {
+      console.error("Error loading routes:", error);
+    }
+  };
+
+  const loadMaintenanceData = async () => {
+    try {
+      const [openTicketsRes, resolvedTicketsRes] = await Promise.all([
+        maintenanceApi.getOpenTickets(),
+        maintenanceApi.getResolvedTickets(),
+      ]);
+
+      const openTicketsData = openTicketsRes.data || [];
+      const resolvedTicketsData = resolvedTicketsRes.data || [];
+
+      setTickets(openTicketsData);
+      setResolvedTickets(resolvedTicketsData);
+
+      const stats = {
+        critical: openTicketsData.filter((t) => t.severity === "CRITICAL")
+          .length,
+        high: openTicketsData.filter((t) => t.severity === "HIGH").length,
+        medium: openTicketsData.filter((t) => t.severity === "MEDIUM").length,
+        total: openTicketsData.length,
+        resolved: resolvedTicketsData.length,
+      };
+
+      setAlertStats(stats);
+    } catch (error) {
+      console.error("Error loading maintenance data:", error);
+      setAlertStats({
+        critical: 0,
+        high: 0,
+        medium: 0,
+        total: 0,
+        resolved: 0,
+      });
+      setTickets([]);
+      setResolvedTickets([]);
+    }
+  };
+
+  useEffect(() => {
+    loadVehicles();
+    loadRoutes();
+    loadMaintenanceData();
+  }, []);
+
+  useEffect(() => {
+    wsRef.current = connectWebSocket((data) => {
+      if (data.vehicles) {
+        dispatch({
+          type: actionTypes.SET_VEHICLES,
+          payload: data.vehicles,
+        });
+      }
+    });
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [dispatch]);
+
   const handleAddVehicle = () => {
     setSelectedVehicle(null);
-    setShowModal(true);
+    setShowVehicleModal(true);
   };
 
   const handleEditVehicle = (vehicle) => {
     setSelectedVehicle(vehicle);
-    setShowModal(true);
+    setShowVehicleModal(true);
   };
 
-  const handleDeleteVehicle = (id) => {
-    const vehicle = state.vehicles.find((v) => v.id === id);
-    setDeleteConfirm({
-      show: true,
-      vehicleId: id,
-      vehicleName: vehicle?.name || "this vehicle",
-    });
-  };
+  const handleDeleteVehicle = async (vehicleId) => {
+    if (window.confirm("Are you sure you want to delete this vehicle?")) {
+      try {
+        console.log(`🗑️ Deleting vehicle ${vehicleId}`);
+        // ✅ CORRECT: /vehicles/{id}
+        await axiosInstance.delete(`/vehicles/${vehicleId}`);
 
-  const confirmDelete = async () => {
-    const { vehicleId } = deleteConfirm;
-    try {
-      await axiosInstance.delete(`${API_URL}/${vehicleId}`);
-      dispatch({
-        type: actionTypes.SET_VEHICLES,
-        payload: state.vehicles.filter((v) => v.id !== vehicleId),
-      });
-      setDeleteConfirm({ show: false, vehicleId: null, vehicleName: "" });
-    } catch (error) {
-      console.error("Error deleting vehicle:", error);
-      alert(error.response?.data?.message || "Failed to delete vehicle.");
-    }
-  };
-
-  const handleSubmitVehicle = async (vehicleData) => {
-    try {
-      if (vehicleData.id) {
-        const response = await axiosInstance.put(
-          `/vehicles/${vehicleData.id}`,
-          vehicleData
-        );
         dispatch({
-          type: actionTypes.SET_VEHICLES,
-          payload: state.vehicles.map((v) =>
-            v.id === vehicleData.id ? response.data : v
-          ),
+          type: actionTypes.DELETE_VEHICLE,
+          payload: vehicleId,
         });
-      } else {
-        const response = await axiosInstance.post("/vehicles", vehicleData);
-        dispatch({
-          type: actionTypes.SET_VEHICLES,
-          payload: [...state.vehicles, response.data],
-        });
+
+        console.log("✅ Vehicle deleted successfully");
+        alert("✅ Vehicle deleted successfully");
+      } catch (error) {
+        console.error("❌ Error deleting vehicle:", error);
+        alert(`❌ Failed to delete vehicle: ${error.message}`);
       }
-
-      setShowModal(false);
-      setSelectedVehicle(null);
-    } catch (error) {
-      console.error("Error submitting vehicle:", error);
-      alert(error.response?.data?.message || "Failed to save vehicle.");
     }
   };
 
-  // Logout functionality
-  const handleLogout = () => setShowLogoutConfirm(true);
+  const handleRouteClick = (route) => {
+    setSelectedRoute(route);
+    setViewMode("routes");
+  };
+
+  // ✅ Logout handlers - like Manager
+  const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
 
   const confirmLogout = () => {
     localStorage.removeItem("jwtToken");
+    localStorage.removeItem("token");
     localStorage.removeItem("role");
     dispatch({ type: actionTypes.LOGOUT });
     navigate("/login");
   };
 
-  // Statistics
-  const stats = {
-    total: state.vehicles.length,
-    available: state.vehicles.filter((v) => v.status === "Available").length,
-    inUse: state.vehicles.filter((v) => v.status === "In Use").length,
-    maintenance: state.vehicles.filter((v) => v.status === "Needs Maintenance")
-      .length,
-    avgBattery:
-      state.vehicles.length > 0
-        ? (
-            state.vehicles.reduce((sum, v) => sum + v.batteryLevel, 0) /
-            state.vehicles.length
-          ).toFixed(1)
-        : 0,
-    avgFuel:
-      state.vehicles.length > 0
-        ? (
-            state.vehicles.reduce((sum, v) => sum + v.fuelLevel, 0) /
-            state.vehicles.length
-          ).toFixed(1)
-        : 0,
-  };
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-900">
+        <div className="text-white text-xl">Loading dashboard...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Animated Canvas Background */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 pointer-events-none"
-        style={{ zIndex: 0 }}
-      />
-
-      {/* Gradient Background */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: `
-            radial-gradient(circle at ${backgroundX}% ${backgroundY}%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
-            radial-gradient(circle at ${100 - backgroundX}% ${
-            100 - backgroundY
-          }%, rgba(147, 51, 234, 0.15) 0%, transparent 50%),
-            linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.95) 50%, rgba(15, 23, 42, 0.98) 100%)
-          `,
-          zIndex: 1,
-        }}
-      />
-
-      {/* Floating Orbs */}
-      <div
-        className="absolute inset-0 pointer-events-none overflow-hidden"
-        style={{ zIndex: 2 }}
-      >
-        <motion.div
-          animate={{
-            scale: [1, 1.3, 1],
-            opacity: [0.1, 0.2, 0.1],
-            rotate: [0, 180, 360],
-          }}
-          transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -top-1/4 -left-1/4 w-1/2 h-1/2 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-full blur-3xl"
-        />
-        <motion.div
-          animate={{
-            scale: [1.3, 1, 1.3],
-            opacity: [0.15, 0.25, 0.15],
-            rotate: [360, 180, 0],
-          }}
-          transition={{ duration: 30, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -bottom-1/4 -right-1/4 w-1/2 h-1/2 bg-gradient-to-tl from-emerald-500/20 to-cyan-500/20 rounded-full blur-3xl"
-        />
-      </div>
-
       <div className="relative z-10 max-w-[1920px] mx-auto p-6 space-y-6">
-        {/* Header Section */}
+        {/* ✅ Header with User Menu - Like Manager */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -434,41 +213,16 @@ const AdminDashboard = () => {
         >
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
-              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-emerald-400 mb-2">
-                Admin Dashboard
+              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 mb-2">
+                🎯 Admin Control Center
               </h1>
               <p className="text-white/60 text-sm">
-                Complete fleet management and analytics
+                {state.vehicles?.length || 0} vehicles • Real-time fleet
+                management
               </p>
             </div>
 
             <div className="flex gap-3 flex-wrap items-center">
-              {/* View Mode Toggle */}
-              <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-1 rounded-xl border border-white/20">
-                {[
-                  { mode: "analytics", icon: "📊", label: "Analytics" },
-                  { mode: "grid", icon: "▦", label: "Grid" },
-                  { mode: "map", icon: "🗺️", label: "Map" },
-                  { mode: "routes", icon: "🛣️", label: "Routes" },
-                  { mode: "maintenance", icon: "🔧", label: "Maintenance" },
-                  { mode: "reports", label: "📊 Reports", icon: "📄" },
-                ].map((item) => (
-                  <motion.button
-                    key={item.mode}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setViewMode(item.mode)}
-                    className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
-                      viewMode === item.mode
-                        ? "bg-white/20 text-white shadow-md"
-                        : "text-white/60 hover:text-white"
-                    }`}
-                  >
-                    <span className="mr-2">{item.icon}</span>
-                    {item.label}
-                  </motion.button>
-                ))}
-              </div>
-
               {/* Add Vehicle Button */}
               <motion.button
                 whileHover={{ scale: 1.05, y: -2 }}
@@ -480,7 +234,7 @@ const AdminDashboard = () => {
                 Add Vehicle
               </motion.button>
 
-              {/* User Menu */}
+              {/* ✅ User Menu - Like Manager */}
               <div className="relative z-[100]">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -488,7 +242,7 @@ const AdminDashboard = () => {
                   onClick={() => setShowUserMenu(!showUserMenu)}
                   className="flex items-center gap-3 px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl hover:bg-white/20 transition-all"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold">
                     {userEmail.charAt(0).toUpperCase()}
                   </div>
                   <div className="text-left hidden md:block">
@@ -511,6 +265,7 @@ const AdminDashboard = () => {
                   </motion.svg>
                 </motion.button>
 
+                {/* User Dropdown Menu */}
                 <AnimatePresence>
                   {showUserMenu && (
                     <>
@@ -561,119 +316,74 @@ const AdminDashboard = () => {
           </div>
         </motion.div>
 
-        {/* Quick Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-          {[
-            {
-              title: "Total Fleet",
-              value: stats.total,
-              icon: "🚗",
-              bg: "from-blue-500/20 to-cyan-500/10",
-            },
-            {
-              title: "Available",
-              value: stats.available,
-              icon: "✅",
-              bg: "from-green-500/20 to-emerald-500/10",
-            },
-            {
-              title: "In Use",
-              value: stats.inUse,
-              icon: "🚦",
-              bg: "from-yellow-500/20 to-orange-500/10",
-            },
-            {
-              title: "Maintenance",
-              value: stats.maintenance,
-              icon: "🔧",
-              bg: "from-red-500/20 to-pink-500/10",
-            },
-            {
-              title: "Avg Battery",
-              value: `${stats.avgBattery}%`,
-              icon: "🔋",
-              bg: "from-green-500/20 to-emerald-500/10",
-            },
-            {
-              title: "Avg Fuel",
-              value: `${stats.avgFuel}%`,
-              icon: "⛽",
-              bg: "from-blue-500/20 to-cyan-500/10",
-            },
-          ].map((stat, index) => (
-            <motion.div
-              key={stat.title}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 * index }}
-              whileHover={{ y: -5, scale: 1.02 }}
-              className="relative group"
-            >
-              <motion.div
-                className={`absolute inset-0 bg-gradient-to-br ${stat.bg} rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`}
-              />
-              <div className="relative backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
-                <motion.div
-                  whileHover={{ scale: 1.2, rotate: 10 }}
-                  className="text-3xl mb-3"
-                >
-                  {stat.icon}
-                </motion.div>
-                <h3 className="text-3xl font-black text-white mb-1">
-                  {stat.value}
-                </h3>
-                <p className="text-white/60 text-sm font-semibold">
-                  {stat.title}
-                </p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+        {/* Tabs */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-2"
+        >
+          <div className="flex gap-2 overflow-x-auto">
+            {[
+              {
+                id: "analytics",
+                mode: "analytics",
+                icon: "📊",
+                label: "Analytics",
+              },
+              { id: "grid", mode: "grid", icon: "▦", label: "Grid" },
+              { id: "map", mode: "map", icon: "🗺️", label: "Map" },
+              { id: "routes", mode: "routes", icon: "🛣️", label: "Routes" },
+              {
+                id: "bookings",
+                mode: "bookings",
+                icon: "📅",
+                label: "Bookings",
+              },
+              {
+                id: "revenue",
+                mode: "revenue",
+                icon: "💰",
+                label: "Revenue",
+              },
+              {
+                id: "maintenance",
+                mode: "maintenance",
+                icon: "🔧",
+                label: "Maintenance",
+              },
+              {
+                id: "ai-maintenance",
+                mode: "ai-maintenance",
+                icon: "🤖",
+                label: "AI Maintenance",
+              },
+              {
+                id: "heatmap",
+                mode: "heatmap",
+                icon: "🔥",
+                label: "Fleet Heatmap",
+              },
+              { id: "reports", mode: "reports", icon: "📄", label: "Reports" },
+            ].map((item) => (
+              <motion.button
+                key={item.id}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setViewMode(item.mode)}
+                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all whitespace-nowrap ${
+                  viewMode === item.mode
+                    ? "bg-white/20 text-white shadow-md"
+                    : "text-white/60 hover:text-white"
+                }`}
+              >
+                <span className="mr-2">{item.icon}</span>
+                {item.label}
+              </motion.button>
+            ))}
+          </div>
+        </motion.div>
 
-        {/* Search and Filter Bar */}
-        {(viewMode === "grid" || viewMode === "list") && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6"
-          >
-            <div className="flex gap-4 flex-wrap">
-              <div className="flex-1 min-w-[300px]">
-                <input
-                  type="text"
-                  placeholder="🔍 Search vehicles..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full p-3 bg-white/10 backdrop-blur-sm text-white border border-white/20 rounded-xl focus:outline-none focus:border-blue-500 placeholder-white/50 transition-all"
-                />
-              </div>
-              <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-1 rounded-xl border border-white/20">
-                {[
-                  { value: "all", label: "All" },
-                  { value: "available", label: "Available" },
-                  { value: "inuse", label: "In Use" },
-                  { value: "needsmaintenance", label: "Maintenance" },
-                ].map((filter) => (
-                  <motion.button
-                    key={filter.value}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setFilterStatus(filter.value)}
-                    className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
-                      filterStatus === filter.value
-                        ? "bg-white/20 text-white shadow-md"
-                        : "text-white/60 hover:text-white"
-                    }`}
-                  >
-                    {filter.label}
-                  </motion.button>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Content Area */}
+        {/* Content Views - same as before */}
         <AnimatePresence mode="wait">
           {viewMode === "analytics" && (
             <motion.div
@@ -681,66 +391,12 @@ const AdminDashboard = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
+              transition={{ duration: 0.3 }}
             >
-              {/* Analytics Tab Navigation */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-2"
-              >
-                <div className="flex gap-2 overflow-x-auto">
-                  {analyticsTabs.map((tab) => (
-                    <motion.button
-                      key={tab.id}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setActiveAnalyticsTab(tab.id)}
-                      className={`px-6 py-3 rounded-xl font-semibold text-sm whitespace-nowrap transition-all ${
-                        activeAnalyticsTab === tab.id
-                          ? "bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg"
-                          : "text-white/60 hover:text-white hover:bg-white/5"
-                      }`}
-                    >
-                      <span className="mr-2">{tab.icon}</span>
-                      {tab.label}
-                    </motion.button>
-                  ))}
-                </div>
-              </motion.div>
-
-              {/* Analytics Tab Content */}
-              <motion.div
-                key={activeAnalyticsTab}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                {activeAnalyticsTab === "overview" && (
-                  <div className="space-y-6">
-                    <VehicleDashboardKPIs />
-                    <HourlyActivityChart />
-                  </div>
-                )}
-
-                {activeAnalyticsTab === "fleet-map" && <FleetHeatmap />}
-
-                {activeAnalyticsTab === "vehicles" && (
-                  <VehicleManager
-                    vehicles={filteredVehicles}
-                    onAdd={handleAddVehicle}
-                    onEdit={handleEditVehicle}
-                    onDelete={handleDeleteVehicle}
-                  />
-                )}
-
-                {activeAnalyticsTab === "users" && <UserManager />}
-
-                {activeAnalyticsTab === "bookings" && <BookingManager />}
-
-                {activeAnalyticsTab === "reports" && <ExportReports />}
-              </motion.div>
+              <VehicleDashboardKPIs />
+              <div className="mt-6">
+                <HourlyActivityChart />
+              </div>
             </motion.div>
           )}
 
@@ -750,38 +406,38 @@ const AdminDashboard = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+              transition={{ duration: 0.3 }}
             >
-              {filteredVehicles.map((vehicle, index) => (
-                <motion.div
-                  key={vehicle.id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: index * 0.05 }}
-                >
-                  <VehicleCard
-                    vehicle={vehicle}
-                    onEdit={handleEditVehicle}
-                    onDelete={handleDeleteVehicle}
-                  />
-                </motion.div>
-              ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {state.vehicles?.map((vehicle, index) => (
+                  <motion.div
+                    key={vehicle.id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                  >
+                    <VehicleCard
+                      vehicle={vehicle}
+                      onEdit={handleEditVehicle}
+                      onDelete={handleDeleteVehicle}
+                    />
+                  </motion.div>
+                ))}
+              </div>
             </motion.div>
           )}
 
           {viewMode === "map" && (
             <motion.div
               key="map"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.3 }}
             >
               <FleetMap
                 vehicles={state.vehicles}
-                height="calc(100vh - 400px)"
-                showControls={true}
-                showLegend={true}
-                defaultStyle="dark"
+                onVehicleClick={handleEditVehicle}
               />
             </motion.div>
           )}
@@ -792,234 +448,36 @@ const AdminDashboard = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
             >
-              {/* Filters Section */}
-              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                <h2 className="text-2xl font-bold text-white mb-6">
-                  Route Management
-                </h2>
+              <RouteMap
+                routes={routes}
+                selectedRoute={selectedRoute}
+                onRouteSelect={handleRouteClick}
+              />
+            </motion.div>
+          )}
 
-                <div className="flex gap-4 flex-wrap">
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="flex-1 min-w-[200px] p-3 bg-white/10 text-white border border-white/20 rounded-xl focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="" className="bg-gray-800">
-                      All Status
-                    </option>
-                    <option value="ASSIGNED" className="bg-gray-800">
-                      Assigned
-                    </option>
-                    <option value="PENDING" className="bg-gray-800">
-                      Pending
-                    </option>
-                    <option value="IN_PROGRESS" className="bg-gray-800">
-                      In Progress
-                    </option>
-                    <option value="COMPLETED" className="bg-gray-800">
-                      Completed
-                    </option>
-                  </select>
+          {viewMode === "bookings" && (
+            <motion.div
+              key="bookings"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <BookingManager />
+            </motion.div>
+          )}
 
-                  <select
-                    value={driverFilter}
-                    onChange={(e) => setDriverFilter(e.target.value)}
-                    className="flex-1 min-w-[200px] p-3 bg-white/10 text-white border border-white/20 rounded-xl focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="" className="bg-gray-800">
-                      All Drivers
-                    </option>
-                    {drivers.map((d) => (
-                      <option key={d.id} value={d.id} className="bg-gray-800">
-                        {d.fullName || d.username}
-                      </option>
-                    ))}
-                  </select>
-
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleFilterRoutes}
-                    className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
-                  >
-                    Apply Filters
-                  </motion.button>
-                </div>
-              </motion.div>
-
-              {/* Routes List */}
-              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                <h3 className="text-xl font-bold text-white mb-6">
-                  All Routes
-                </h3>
-
-                {state.routes.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🛣️</div>
-                    <p className="text-white/60">No routes found</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {state.routes.map((route, index) => (
-                      <motion.div
-                        key={route.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-xl p-4"
-                      >
-                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                          {/* Route Info */}
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <h4 className="text-white font-bold text-lg">
-                                #{route.id} - {route.origin} →{" "}
-                                {route.destination}
-                              </h4>
-                              <span
-                                className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                                  route.status === "ASSIGNED"
-                                    ? "bg-blue-500/20 text-blue-400"
-                                    : route.status === "IN_PROGRESS"
-                                    ? "bg-yellow-500/20 text-yellow-400"
-                                    : route.status === "COMPLETED"
-                                    ? "bg-green-500/20 text-green-400"
-                                    : "bg-gray-500/20 text-gray-400"
-                                }`}
-                              >
-                                {route.status}
-                              </span>
-                            </div>
-
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-white/60">
-                              <div>
-                                <span className="block text-white/40">
-                                  Vehicle
-                                </span>
-                                <span className="text-white font-semibold">
-                                  {route.vehicle?.name ||
-                                    route.assignedVehicleId ||
-                                    "N/A"}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="block text-white/40">
-                                  Driver
-                                </span>
-                                <span className="text-white font-semibold">
-                                  {route.driver?.fullName ||
-                                    route.assignedDriverId ||
-                                    "N/A"}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="block text-white/40">ETA</span>
-                                <span className="text-white font-semibold">
-                                  {route.predictedEta
-                                    ? `${Math.round(route.predictedEta)} mins`
-                                    : "-"}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="block text-white/40">
-                                  Distance
-                                </span>
-                                <span className="text-white font-semibold">
-                                  {route.distanceKm
-                                    ? `${route.distanceKm} km`
-                                    : "-"}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Assignment Controls */}
-                          {route.status !== "COMPLETED" && (
-                            <div className="flex gap-2 flex-wrap">
-                              <select
-                                onChange={(e) => {
-                                  const vehicleId = e.target.value;
-                                  if (vehicleId)
-                                    setSelectedAssignment({
-                                      ...selectedAssignment,
-                                      [route.id]: {
-                                        ...selectedAssignment[route.id],
-                                        vehicleId,
-                                      },
-                                    });
-                                }}
-                                className="px-3 py-2 bg-white/10 text-white border border-white/20 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
-                              >
-                                <option value="" className="bg-gray-800">
-                                  Vehicle
-                                </option>
-                                {state.vehicles.map((v) => (
-                                  <option
-                                    key={v.id}
-                                    value={v.id}
-                                    className="bg-gray-800"
-                                  >
-                                    {v.name}
-                                  </option>
-                                ))}
-                              </select>
-
-                              <select
-                                onChange={(e) => {
-                                  const driverId = e.target.value;
-                                  if (driverId)
-                                    setSelectedAssignment({
-                                      ...selectedAssignment,
-                                      [route.id]: {
-                                        ...selectedAssignment[route.id],
-                                        driverId,
-                                      },
-                                    });
-                                }}
-                                className="px-3 py-2 bg-white/10 text-white border border-white/20 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
-                              >
-                                <option value="" className="bg-gray-800">
-                                  Driver
-                                </option>
-                                {drivers.map((d) => (
-                                  <option
-                                    key={d.id}
-                                    value={d.id}
-                                    className="bg-gray-800"
-                                  >
-                                    {d.fullName || d.username}
-                                  </option>
-                                ))}
-                              </select>
-
-                              <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => handleAssignRoute(route.id)}
-                                className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all"
-                              >
-                                Assign
-                              </motion.button>
-                            </div>
-                          )}
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-
-              {/* Route Map */}
-              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                <h3 className="text-xl font-bold text-white mb-4">Route Map</h3>
-                <RouteMap
-                  routes={state.routes}
-                  vehicles={state.vehicles}
-                  height="600px"
-                />
-              </motion.div>
+          {viewMode === "revenue" && (
+            <motion.div
+              key="revenue"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <RevenueAnalytics />
             </motion.div>
           )}
 
@@ -1029,36 +487,38 @@ const AdminDashboard = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
               className="space-y-6"
             >
-              {/* Maintenance KPI Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {[
                   {
-                    title: "Total Vehicles",
-                    value: state.vehicles.length,
-                    icon: "🚗",
+                    title: "Total Open",
+                    value: alertStats.total || 0,
+                    icon: "🎫",
                     bg: "from-blue-500/20 to-cyan-500/10",
                   },
                   {
-                    title: "Open Tickets",
-                    value: maintenanceTickets.filter((t) => t.status === "OPEN")
-                      .length,
-                    icon: "🎫",
-                    bg: "from-yellow-500/20 to-orange-500/10",
-                  },
-                  {
                     title: "Critical",
-                    value: maintenanceTickets.filter(
-                      (t) => t.severity === "HIGH" && t.status === "OPEN"
-                    ).length,
-                    icon: "⚠️",
+                    value: alertStats.critical || 0,
+                    icon: "🚨",
                     bg: "from-red-500/20 to-pink-500/10",
                   },
                   {
-                    title: "Healthy",
-                    value: state.vehicles.filter((v) => (v.tireWear || 0) < 50)
-                      .length,
+                    title: "High Priority",
+                    value: alertStats.high || 0,
+                    icon: "⚠️",
+                    bg: "from-orange-500/20 to-yellow-500/10",
+                  },
+                  {
+                    title: "Medium Priority",
+                    value: alertStats.medium || 0,
+                    icon: "📋",
+                    bg: "from-yellow-500/20 to-green-500/10",
+                  },
+                  {
+                    title: "Resolved",
+                    value: alertStats.resolved || 0,
                     icon: "✅",
                     bg: "from-green-500/20 to-emerald-500/10",
                   },
@@ -1067,7 +527,7 @@ const AdminDashboard = () => {
                     key={stat.title}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 * index }}
+                    transition={{ delay: index * 0.1 }}
                     whileHover={{ y: -5, scale: 1.02 }}
                     className="relative group"
                   >
@@ -1092,220 +552,273 @@ const AdminDashboard = () => {
                 ))}
               </div>
 
-              {/* Charts & Alerts Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Maintenance Charts */}
-                <div className="lg:col-span-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                  <h2 className="text-2xl font-bold text-white mb-6">
-                    Maintenance Analytics
-                  </h2>
-                  <MaintenanceCharts
-                    vehicles={state.vehicles}
-                    tickets={maintenanceTickets}
-                  />
-                </div>
+              <MaintenanceCharts stats={alertStats} />
 
-                {/* Alerts Table */}
-                <div className="lg:col-span-1 backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                  <AlertsTable tickets={maintenanceTickets} />
+              <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-2xl font-bold text-white">
+                    🔧 Vehicle Health Status
+                  </h3>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={loadMaintenanceData}
+                    className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl shadow-lg"
+                  >
+                    🔄 Refresh
+                  </motion.button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {state.vehicles?.slice(0, 6).map((vehicle) => (
+                    <VehicleHealthCard
+                      key={vehicle.id}
+                      vehicle={vehicle}
+                      onClick={() => handleEditVehicle(vehicle)}
+                    />
+                  ))}
                 </div>
               </div>
 
-              {/* Vehicle Health Cards */}
-              <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                <h2 className="text-2xl font-bold text-white mb-6">
-                  Vehicle Health Status
-                </h2>
+              <AlertsTable tickets={tickets} onRefresh={loadMaintenanceData} />
 
-                {state.vehicles.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h3 className="text-2xl font-bold text-white">
+                      ✅ Resolved Tickets
+                    </h3>
+                    <p className="text-white/60 text-sm mt-1">
+                      {resolvedTickets.length} resolved{" "}
+                      {resolvedTickets.length === 1 ? "ticket" : "tickets"}
+                    </p>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={loadMaintenanceData}
+                    className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold rounded-xl shadow-lg"
+                  >
+                    🔄 Refresh
+                  </motion.button>
+                </div>
+
+                {resolvedTickets.length === 0 ? (
                   <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🔧</div>
-                    <p className="text-white/60">No vehicles to monitor</p>
+                    <div className="text-6xl mb-4">📭</div>
+                    <h3 className="text-xl font-bold text-white mb-2">
+                      No Resolved Tickets Yet
+                    </h3>
+                    <p className="text-white/60">
+                      Resolved tickets will appear here
+                    </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {state.vehicles.map((vehicle, index) => (
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                    {resolvedTickets.map((ticket, index) => (
                       <motion.div
-                        key={vehicle.id}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
+                        key={ticket.id}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.05 }}
+                        className="backdrop-blur-sm bg-green-500/5 border border-green-500/20 rounded-xl p-4"
                       >
-                        <VehicleHealthCard vehicle={vehicle} />
+                        <div className="flex items-start justify-between flex-wrap gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h4 className="text-lg font-bold text-white">
+                                Ticket #{ticket.id}
+                              </h4>
+                              <span className="px-3 py-1 rounded-full text-xs font-bold bg-green-500/20 text-green-400 border border-green-500/30">
+                                RESOLVED
+                              </span>
+                              <span className="px-2 py-1 rounded-full text-xs font-semibold bg-white/10 text-white/60">
+                                {ticket.severity}
+                              </span>
+                            </div>
+                            <p className="text-white/70 text-sm mb-2">
+                              {ticket.description}
+                            </p>
+                            <div className="flex gap-4 text-sm text-white/60">
+                              <span>🚗 Vehicle #{ticket.vehicleId}</span>
+                              <span>
+                                📅 Reported:{" "}
+                                {new Date(
+                                  ticket.reportedAt
+                                ).toLocaleDateString()}
+                              </span>
+                              {ticket.resolvedAt && (
+                                <span className="text-green-400">
+                                  ✅ Resolved:{" "}
+                                  {new Date(
+                                    ticket.resolvedAt
+                                  ).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            className="px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl font-semibold hover:bg-blue-500/30 transition-all"
+                          >
+                            👁️ View Details
+                          </motion.button>
+                        </div>
                       </motion.div>
                     ))}
                   </div>
                 )}
-              </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {viewMode === "ai-maintenance" && (
+            <motion.div
+              key="ai-maintenance"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <AIMaintenanceDashboard />
+            </motion.div>
+          )}
+
+          {viewMode === "heatmap" && (
+            <motion.div
+              key="heatmap"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <FleetHeatmap />
+            </motion.div>
+          )}
+
+          {viewMode === "reports" && (
+            <motion.div
+              key="reports"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <ExportReports />
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Empty State */}
-        {filteredVehicles.length === 0 && viewMode === "grid" && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-12 text-center"
-          >
-            <div className="text-6xl mb-4">🚗</div>
-            <h3 className="text-2xl font-bold text-white mb-2">
-              No Vehicles Found
-            </h3>
-            <p className="text-white/60 mb-6">
-              {searchQuery
-                ? "Try adjusting your search or filters"
-                : "Get started by adding your first vehicle"}
-            </p>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleAddVehicle}
-              className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold rounded-xl shadow-lg"
-            >
-              Add First Vehicle
-            </motion.button>
-          </motion.div>
-        )}
-      </div>
-
-      {/* Modals */}
-      <VehicleModal
-        show={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setSelectedVehicle(null);
-        }}
-        onSubmit={handleSubmitVehicle}
-        vehicle={selectedVehicle}
-      />
-
-      {/* Delete Confirmation Modal */}
-      <AnimatePresence>
-        {deleteConfirm.show && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={() =>
-              setDeleteConfirm({
-                show: false,
-                vehicleId: null,
-                vehicleName: "",
-              })
-            }
-          >
+        {/* ✅ Logout Confirmation Modal - Like Manager */}
+        <AnimatePresence>
+          {showLogoutConfirm && (
             <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl p-8 max-w-md w-full"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowLogoutConfirm(false)}
             >
               <motion.div
-                initial={{ scale: 0, rotate: -180 }}
-                animate={{ scale: 1, rotate: 0 }}
-                className="flex justify-center mb-6"
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl p-8 max-w-md w-full"
               >
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-red-500 to-pink-600 flex items-center justify-center text-4xl shadow-lg">
-                  ⚠️
+                <motion.div
+                  initial={{ scale: 0, rotate: -180 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  className="flex justify-center mb-6"
+                >
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-4xl shadow-lg">
+                    🚪
+                  </div>
+                </motion.div>
+                <h2 className="text-2xl font-black text-white text-center mb-3">
+                  Logout?
+                </h2>
+                <p className="text-white/70 text-center mb-8">
+                  Are you sure you want to logout? You will need to login again
+                  to access the dashboard.
+                </p>
+                <div className="flex gap-4">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowLogoutConfirm(false)}
+                    className="flex-1 px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-white font-bold rounded-xl hover:bg-white/20 transition-all"
+                  >
+                    Cancel
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={confirmLogout}
+                    className="flex-1 px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
+                  >
+                    Logout
+                  </motion.button>
                 </div>
               </motion.div>
-              <h2 className="text-2xl font-black text-white text-center mb-3">
-                Delete Vehicle?
-              </h2>
-              <p className="text-white/70 text-center mb-8">
-                Are you sure you want to delete{" "}
-                <span className="font-bold text-white">
-                  "{deleteConfirm.vehicleName}"
-                </span>
-                ? This action cannot be undone.
-              </p>
-              <div className="flex gap-4">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() =>
-                    setDeleteConfirm({
-                      show: false,
-                      vehicleId: null,
-                      vehicleName: "",
-                    })
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Vehicle Modal */}
+        {/* Vehicle Modal */}
+        <AnimatePresence>
+          {showVehicleModal && (
+            <VehicleModal
+              show={showVehicleModal}
+              vehicle={selectedVehicle}
+              onClose={() => {
+                console.log("🔐 Closing VehicleModal");
+                setShowVehicleModal(false);
+                setSelectedVehicle(null);
+              }}
+              onSubmit={async (vehicleData) => {
+                try {
+                  console.log("📤 Submitting vehicle data:", vehicleData);
+
+                  if (selectedVehicle?.id) {
+                    // ✅ UPDATE existing - using correct endpoint
+                    console.log(`🔄 Updating vehicle ${selectedVehicle.id}`);
+                    await axiosInstance.put(
+                      `/vehicles/${selectedVehicle.id}`, // ✅ CORRECT: /vehicles/{id}
+                      vehicleData
+                    );
+                    console.log("✅ Vehicle updated successfully");
+                  } else {
+                    // ✅ CREATE new - using correct endpoint
+                    console.log("✨ Creating new vehicle");
+                    await axiosInstance.post(
+                      `/vehicles`, // ✅ CORRECT: /vehicles (no /admin)
+                      vehicleData
+                    );
+                    console.log("✅ Vehicle created successfully");
                   }
-                  className="flex-1 px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-white font-bold rounded-xl hover:bg-white/20 transition-all"
-                >
-                  Cancel
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={confirmDelete}
-                  className="flex-1 px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
-                >
-                  Delete
-                </motion.button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
-      {/* Logout Confirmation Modal */}
-      <AnimatePresence>
-        {showLogoutConfirm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowLogoutConfirm(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl p-8 max-w-md w-full"
-            >
-              <motion.div
-                initial={{ scale: 0, rotate: -180 }}
-                animate={{ scale: 1, rotate: 0 }}
-                className="flex justify-center mb-6"
-              >
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-4xl shadow-lg">
-                  🚪
-                </div>
-              </motion.div>
-              <h2 className="text-2xl font-black text-white text-center mb-3">
-                Logout?
-              </h2>
-              <p className="text-white/70 text-center mb-8">
-                Are you sure you want to logout? You will need to login again to
-                access the dashboard.
-              </p>
-              <div className="flex gap-4">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowLogoutConfirm(false)}
-                  className="flex-1 px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-white font-bold rounded-xl hover:bg-white/20 transition-all"
-                >
-                  Cancel
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={confirmLogout}
-                  className="flex-1 px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
-                >
-                  Logout
-                </motion.button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                  // ✅ Reload the vehicles list
+                  await loadVehicles("ADMIN"); // Pass role for correct endpoint
+                  console.log("🔄 Vehicles list refreshed");
+                } catch (error) {
+                  console.error("❌ Error saving vehicle:", error);
+                  const errorMessage =
+                    error.response?.data?.message ||
+                    error.message ||
+                    "Failed to save vehicle";
+                  throw new Error(errorMessage);
+                }
+              }}
+            />
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 };

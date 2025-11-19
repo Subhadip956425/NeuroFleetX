@@ -11,9 +11,9 @@ const ExportReports = () => {
   const reportTypes = [
     { value: "fleet-summary", label: "Fleet Summary" },
     { value: "bookings", label: "Booking History" },
-    { value: "revenue", label: "Revenue Report" },
-    { value: "maintenance", label: "Maintenance Records" },
-    { value: "utilization", label: "Vehicle Utilization" },
+    // { value: "revenue", label: "Revenue Report" },
+    // { value: "maintenance", label: "Maintenance Records" },
+    // { value: "utilization", label: "Vehicle Utilization" },
   ];
 
   const handleExport = async (format) => {

@@ -152,13 +152,18 @@ public class VehicleServiceImpl implements VehicleService {
 
     @Override
     public VehicleResponse assignDriver(Long vehicleId, Long driverId) {
-        Vehicle vehicle = vehicleRepo.findById(vehicleId).orElseThrow(() -> new RuntimeException("Vehicle not found"));
-        User driver = userRepo.findById(driverId).orElseThrow(() -> new RuntimeException("Driver not found"));
+        Vehicle vehicle = vehicleRepo.findById(vehicleId)
+                .orElseThrow(() -> new RuntimeException("Vehicle not found"));
+        User driver = userRepo.findById(driverId)
+                .orElseThrow(() -> new RuntimeException("Driver not found"));
 
         // ensure user has DRIVER role
-        boolean isDriver = driver.getRoles().stream().anyMatch(r -> "DRIVER".equalsIgnoreCase(r.getName()));
+        boolean isDriver = driver.getRoles().stream()
+                .anyMatch(r -> "DRIVER".equalsIgnoreCase(r.getName()));
         if (!isDriver) throw new RuntimeException("User is not a DRIVER");
 
+        // ✅ SET BOTH - the ID field AND the relationship
+        vehicle.setAssignedDriverId(driver.getId());  // ✅ ADD THIS LINE
         vehicle.setAssignedDriver(driver);
 
         // Update status to "In Use" when driver assigned
@@ -174,7 +179,11 @@ public class VehicleServiceImpl implements VehicleService {
 
     @Override
     public VehicleResponse unassignDriver(Long vehicleId) {
-        Vehicle vehicle = vehicleRepo.findById(vehicleId).orElseThrow(() -> new RuntimeException("Vehicle not found"));
+        Vehicle vehicle = vehicleRepo.findById(vehicleId)
+                .orElseThrow(() -> new RuntimeException("Vehicle not found"));
+
+        // ✅ CLEAR BOTH - the ID field AND the relationship
+        vehicle.setAssignedDriverId(null);  // ✅ ADD THIS LINE
         vehicle.setAssignedDriver(null);
 
         // Update status back to "Available" when driver unassigned
@@ -184,8 +193,10 @@ public class VehicleServiceImpl implements VehicleService {
 
         vehicle.setLastUpdated(LocalDateTime.now());
         vehicleRepo.save(vehicle);
+
         return mapToResponse(vehicle);
     }
+
 
     private VehicleResponse mapToResponse(Vehicle v) {
         VehicleResponse resp = new VehicleResponse();
@@ -199,13 +210,16 @@ public class VehicleServiceImpl implements VehicleService {
         resp.setLatitude(v.getLatitude());
         resp.setLongitude(v.getLongitude());
 
+        // ✅ CORRECT: Only set if driver exists
         if (v.getAssignedDriver() != null) {
             resp.setAssignedDriverId(v.getAssignedDriver().getId());
-            resp.setAssignedDriverName(v.getAssignedDriver().getFullName());
+            // Don't set assignedDriverName to null - leave it as is or just don't set it
         }
 
         return resp;
     }
+
+
 
     @Override
     public Vehicle getVehicleByDriverId(Long driverId) {

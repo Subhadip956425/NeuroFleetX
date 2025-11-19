@@ -13,11 +13,14 @@ export default function BookingForm({ onBookingCreated }) {
     seats: 1,
     pickupLocation: "",
     dropoffLocation: "",
+    distance: null,
+    duration: null,
   });
   const [recs, setRecs] = useState([]);
   const [loadingRecs, setLoadingRecs] = useState(false);
   const [selectedRecommendation, setSelectedRecommendation] = useState(null);
   const [hoveredVehicleType, setHoveredVehicleType] = useState(null);
+  const [calculatingDistance, setCalculatingDistance] = useState(false);
 
   // Vehicle types configuration
   const vehicleTypes = [
@@ -63,6 +66,111 @@ export default function BookingForm({ onBookingCreated }) {
     },
   ];
 
+  const handleLocationChange = async (field, value) => {
+    setForm({ ...form, [field]: value });
+
+    // If both locations are filled, calculate distance
+    if (
+      field === "pickupLocation" &&
+      form.dropoffLocation &&
+      value.length > 3
+    ) {
+      await calculateDistanceAndDuration(value, form.dropoffLocation);
+    } else if (
+      field === "dropoffLocation" &&
+      form.pickupLocation &&
+      value.length > 3
+    ) {
+      await calculateDistanceAndDuration(form.pickupLocation, value);
+    }
+  };
+
+  // ✅ Calculate distance and duration
+  const calculateDistanceAndDuration = async (pickup, dropoff) => {
+    try {
+      setCalculatingDistance(true);
+      const result = await calculateDistance(pickup, dropoff);
+
+      setForm((prevForm) => ({
+        ...prevForm,
+        distance: result.distance,
+        duration: result.duration,
+      }));
+
+      console.log("📍 Distance calculated:", result);
+    } catch (error) {
+      console.error("Error calculating distance:", error);
+    } finally {
+      setCalculatingDistance(false);
+    }
+  };
+
+  // Add geocoding helper function
+  const geocodeLocation = async (address) => {
+    try {
+      // Using Nominatim OpenStreetMap Geocoding API
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+          address
+        )}&limit=1`
+      );
+      const data = await response.json();
+
+      if (data && data.length > 0) {
+        return {
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon),
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("Geocoding error:", error);
+      return null;
+    }
+  };
+
+  // Updated handleCreate function
+  const handleCreate = async (vehicleId = null) => {
+    if (!form.startTime || !form.endTime || !form.pickupLocation) {
+      alert("Please fill all required fields");
+      return;
+    }
+
+    try {
+      // ✅ Geocode locations to get coordinates
+      const pickupCoords = await geocodeLocation(form.pickupLocation);
+      const dropoffCoords = await geocodeLocation(form.dropoffLocation);
+
+      const payload = {
+        customerId: state.user?.id || localStorage.getItem("userId"),
+        vehicleId: vehicleId || selectedRecommendation?.id,
+        vehicleType: form.vehicleType,
+        isEv: form.isEv,
+        startTime: new Date(form.startTime).toISOString(),
+        endTime: new Date(form.endTime).toISOString(),
+        seats: form.seats,
+        pickupLocation: form.pickupLocation,
+        dropoffLocation: form.dropoffLocation,
+        // ✅ Include coordinates
+        pickupLat: pickupCoords?.lat || 28.6139,
+        pickupLng: pickupCoords?.lng || 77.209,
+        dropoffLat: dropoffCoords?.lat || 28.5355,
+        dropoffLng: dropoffCoords?.lng || 77.391,
+        distance: form.distance || 50,
+        duration: form.duration || 90,
+      };
+
+      const res = await bookingApi.createBooking(payload);
+      dispatch({ type: actionTypes.CREATE_BOOKING, payload: res.data || res });
+
+      alert("✅ Booking created successfully!");
+      if (onBookingCreated) onBookingCreated();
+    } catch (err) {
+      console.error(err);
+      alert("Create failed: " + (err.response?.data?.message || err.message));
+    }
+  };
+
   const handleRecommend = async () => {
     if (!form.startTime || !form.endTime) {
       alert("Please select start and end times");
@@ -88,48 +196,6 @@ export default function BookingForm({ onBookingCreated }) {
       );
     } finally {
       setLoadingRecs(false);
-    }
-  };
-
-  const handleCreate = async (vehicleId = null) => {
-    if (!form.startTime || !form.endTime || !form.pickupLocation) {
-      alert("Please fill all required fields");
-      return;
-    }
-
-    try {
-      const payload = {
-        customerId: state.user?.id || localStorage.getItem("userId"),
-        vehicleId: vehicleId || selectedRecommendation?.id,
-        vehicleType: form.vehicleType,
-        isEv: form.isEv,
-        startTime: new Date(form.startTime).toISOString(),
-        endTime: new Date(form.endTime).toISOString(),
-        seats: form.seats,
-        pickupLocation: form.pickupLocation,
-        dropoffLocation: form.dropoffLocation,
-      };
-      const res = await bookingApi.createBooking(payload);
-      dispatch({ type: actionTypes.CREATE_BOOKING, payload: res.data || res });
-
-      // Reset form
-      setForm({
-        vehicleType: "",
-        isEv: false,
-        startTime: "",
-        endTime: "",
-        seats: 1,
-        pickupLocation: "",
-        dropoffLocation: "",
-      });
-      setRecs([]);
-      setSelectedRecommendation(null);
-
-      alert("✅ Booking created successfully!");
-      if (onBookingCreated) onBookingCreated();
-    } catch (err) {
-      console.error(err);
-      alert("Create failed: " + (err.response?.data?.message || err.message));
     }
   };
 
@@ -370,6 +436,34 @@ export default function BookingForm({ onBookingCreated }) {
             />
           </div>
         </div>
+
+        {form.distance && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 rounded-lg p-4"
+          >
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-white/60 text-xs mb-1">📏 Distance</p>
+                <p className="text-white font-bold text-lg">
+                  {form.distance} km
+                </p>
+              </div>
+              <div>
+                <p className="text-white/60 text-xs mb-1">⏱️ Estimated Time</p>
+                <p className="text-white font-bold text-lg">
+                  {Math.floor(form.duration / 60)}h {form.duration % 60}m
+                </p>
+              </div>
+            </div>
+            {calculatingDistance && (
+              <p className="text-cyan-400 text-xs mt-2">
+                🔄 Updating distance...
+              </p>
+            )}
+          </motion.div>
+        )}
 
         {/* Seats Selector - Enhanced with Visual Pills */}
         <div>

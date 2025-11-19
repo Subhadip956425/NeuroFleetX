@@ -37,4 +37,14 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     @Query("SELECT b FROM Booking b WHERE b.assignedDriverId = :driverId")
     List<Booking> findByDriverId(@Param("driverId") Long driverId);
 
+    @Query("SELECT b FROM Booking b WHERE b.vehicleId = :vehicleId " +
+            "AND ((b.startTime < :dayEnd AND b.endTime > :dayStart)) " +
+            "AND b.status IN ('CONFIRMED', 'PENDING')")
+    List<Booking> findByVehicleIdAndDateRange(
+            @Param("vehicleId") Long vehicleId,
+            @Param("dayStart") LocalDateTime dayStart,
+            @Param("dayEnd") LocalDateTime dayEnd
+    );
+
+
 }

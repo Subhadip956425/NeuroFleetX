@@ -435,9 +435,11 @@ export default function Register() {
               exit={{ opacity: 0, scale: 0.9, y: -20 }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
               className={`mb-6 p-4 rounded-2xl border backdrop-blur-sm ${
-                message.includes("success") || message.includes("created")
-                  ? "text-green-400 bg-green-500/10 border-green-500/30"
-                  : "text-red-400 bg-red-500/10 border-red-500/30"
+                message.includes("success") ||
+                message.includes("successfully") ||
+                message.includes("created")
+                  ? "bg-green-500/10 border-green-500/30"
+                  : "bg-red-500/10 border-red-500/30"
               }`}
             >
               <motion.div
@@ -451,14 +453,53 @@ export default function Register() {
                   transition={{ duration: 0.3, repeat: 2 }}
                   className="text-2xl"
                 >
-                  {message.includes("success") ? "🎉" : "⚠️"}
+                  {message.includes("success") ||
+                  message.includes("successfully") ||
+                  message.includes("created")
+                    ? "🎉"
+                    : "⚠️"}
                 </motion.span>
-                <span className="font-semibold flex-1">{message}</span>
+
+                <div className="flex-1">
+                  <p
+                    className={`font-semibold ${
+                      message.includes("success") ||
+                      message.includes("successfully") ||
+                      message.includes("created")
+                        ? "text-green-400"
+                        : "text-red-400"
+                    }`}
+                  >
+                    {message}
+                  </p>
+
+                  {/* ✅ NEW: Email confirmation message */}
+                  {(message.includes("success") ||
+                    message.includes("successfully") ||
+                    message.includes("created")) && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.3 }}
+                      className="text-green-300 text-xs mt-2 flex items-center gap-1"
+                    >
+                      <span>📧</span>
+                      Check your email for a welcome message!
+                    </motion.p>
+                  )}
+                </div>
+
                 <motion.button
                   whileHover={{ scale: 1.1, rotate: 90 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={() => setMessage("")}
-                  className="hover:opacity-80 transition-opacity"
+                  className={`hover:opacity-80 transition-opacity ${
+                    message.includes("success") ||
+                    message.includes("successfully") ||
+                    message.includes("created")
+                      ? "text-green-400"
+                      : "text-red-400"
+                  }`}
                 >
                   ✕
                 </motion.button>

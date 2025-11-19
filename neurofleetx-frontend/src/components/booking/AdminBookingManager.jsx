@@ -59,6 +59,8 @@ const BookingManager = () => {
     confirmed: bookings?.filter((b) => b.status === "CONFIRMED").length || 0,
     rejected: bookings?.filter((b) => b.status === "REJECTED").length || 0,
     completed: bookings?.filter((b) => b.status === "COMPLETED").length || 0,
+    paid: bookings?.filter((b) => b.isPaid).length || 0, // ✅ NEW
+    unpaid: bookings?.filter((b) => !b.isPaid).length || 0,
   };
 
   const getStatusColor = (status) => {
@@ -111,7 +113,7 @@ const BookingManager = () => {
       </motion.div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
         {[
           {
             title: "Total",
@@ -142,6 +144,19 @@ const BookingManager = () => {
             value: stats.completed,
             icon: "✔️",
             bg: "from-blue-500/20 to-cyan-500/10",
+          },
+          // ✅ NEW: Payment stats cards
+          {
+            title: "Paid",
+            value: stats.paid,
+            icon: "💰",
+            bg: "from-green-500/20 to-emerald-500/10",
+          },
+          {
+            title: "Unpaid",
+            value: stats.unpaid,
+            icon: "⏰",
+            bg: "from-orange-500/20 to-yellow-500/10",
           },
         ].map((stat, index) => (
           <motion.div
@@ -257,6 +272,15 @@ const BookingManager = () => {
                       >
                         {booking.status?.toUpperCase()}
                       </span>
+                      {booking.isPaid ? (
+                        <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold border border-green-500/30">
+                          ✅ Paid
+                        </span>
+                      ) : (
+                        <span className="px-3 py-1 bg-orange-500/20 text-orange-400 rounded-full text-xs font-semibold border border-orange-500/30">
+                          💳 Unpaid
+                        </span>
+                      )}
                       <span className="text-sm text-white/60">
                         🚗 {getVehicleTypeName(booking.vehicleType)}
                       </span>

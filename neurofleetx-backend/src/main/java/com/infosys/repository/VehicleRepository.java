@@ -27,5 +27,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
     // Get unassigned vehicles
     @Query("SELECT v FROM Vehicle v WHERE v.assignedDriver IS NULL")
     List<Vehicle> findAllUnassignedVehicles();
+
+    @Query("SELECT v FROM Vehicle v WHERE v.assignedDriverId = :driverId")
+    Optional<Vehicle> findByDriverId(@Param("driverId") Long driverId);
 }
 

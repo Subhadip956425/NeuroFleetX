@@ -28,5 +28,9 @@ public class HealthReading {
     private Double fuelLevel;       // percentage 0-100
     private Double mileage;         // total km reading
 
+    private Double tirePressure;
+
+    private Double batteryHealth;
+
     private LocalDateTime timestamp;
 }

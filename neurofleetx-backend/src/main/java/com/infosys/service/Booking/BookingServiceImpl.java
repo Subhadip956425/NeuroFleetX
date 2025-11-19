@@ -1,21 +1,23 @@
 package com.infosys.service.Booking;
 
 import com.infosys.dto.CreateBookingRequest;
+import com.infosys.model.*;
+import com.infosys.model.AI.RouteStatus;
 import com.infosys.model.Booking.Booking;
 import com.infosys.model.Booking.BookingStatus;
-import com.infosys.model.User;
-import com.infosys.model.Vehicle;
-import com.infosys.model.VehicleStatus;
-import com.infosys.repository.BookingRepository;
-import com.infosys.repository.UserRepository;
-import com.infosys.repository.VehicleRepository;
-import com.infosys.repository.VehicleStatusRepository;
+import com.infosys.repository.*;
+import com.infosys.repository.AI.RouteRepository;
+import com.infosys.service.BookingSlotService;
+import com.infosys.service.RouteOptimizationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -28,10 +30,14 @@ import java.util.stream.Collectors;
  2. Manager can REJECT → REJECTED status → Remove from driver queues
  3. Driver can ACCEPT → CONFIRMED status → Assign driver and vehicle
  4. Driver can REJECT → Stays PENDING for other drivers
+ 5. ✅ Driver accepts → Route created in driver_routes table
 */
 @Service
 public class BookingServiceImpl implements BookingService {
 
+    private static final Logger logger = LoggerFactory.getLogger(BookingServiceImpl.class);
+
+    // ✅ Single instance of each repository (no duplicates)
     @Autowired
     private BookingRepository bookingRepo;
 
@@ -46,6 +52,18 @@ public class BookingServiceImpl implements BookingService {
 
     @Autowired
     private VehicleStatusRepository vehicleStatusRepo;
+
+    @Autowired
+    private RouteRepository routeRepository;
+
+    @Autowired
+    private BookingSlotService bookingSlotService;
+
+    @Autowired
+    private RouteOptimizationService routeOptimizationService;
+
+    @Autowired
+    private DriverRouteRepository driverRouteRepository;
 
     // ==================== PRICE CALCULATION ====================
 
@@ -77,35 +95,43 @@ public class BookingServiceImpl implements BookingService {
         // 2) Create booking without assigning vehicle (PENDING status)
         Booking booking = Booking.builder()
                 .customerId(req.getCustomerId())
-                .vehicleId(null) // No vehicle assigned yet
+                .vehicleId(null)
                 .vehicleType(req.getVehicleType())
                 .isEv(req.getIsEv())
                 .seats(req.getSeats())
                 .pickupLocation(req.getPickupLocation())
                 .dropoffLocation(req.getDropoffLocation())
+                // ✅ NEW: Add coordinates for heatmap
+                .pickupLat(req.getPickupLat())
+                .pickupLng(req.getPickupLng())
+                .dropoffLat(req.getDropoffLat())
+                .dropoffLng(req.getDropoffLng())
                 .startTime(req.getStartTime())
                 .endTime(req.getEndTime())
+                .distance(req.getDistance())
+                .duration(req.getDuration())
                 .price(computePrice(req))
-                .status(BookingStatus.PENDING) // Always PENDING at creation
-                .rejectedBy(null) // Not rejected
+                .status(BookingStatus.PENDING)
+                .rejectedBy(null)
                 .rejectReason(null)
-                .assignedDriverId(null) // No driver assigned yet
+                .assignedDriverId(null)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
 
         booking = bookingRepo.save(booking);
 
-        // 3) Broadcast to drivers subscribed to this vehicle type
-        // WebSocket topic: /topic/bookings/requests/<vehicleType>
+        // 3) Broadcast to drivers
         String topic = "/topic/bookings/requests/" + req.getVehicleType().toUpperCase();
         messagingTemplate.convertAndSend(topic, booking);
-
-        // Also broadcast to manager/admin dashboards
         messagingTemplate.convertAndSend("/topic/bookings/manager", booking);
+
+        logger.info("✅ Booking created: ID={}, Customer={}, Status={}",
+                booking.getId(), req.getCustomerId(), BookingStatus.PENDING);
 
         return booking;
     }
+
 
     @Override
     @Transactional
@@ -125,7 +151,7 @@ public class BookingServiceImpl implements BookingService {
         // Free vehicle if it was CONFIRMED
         if (saved.getVehicleId() != null) {
             vehicleRepo.findById(saved.getVehicleId()).ifPresent(v -> {
-                VehicleStatus availableStatus = vehicleStatusRepo.findByName("AVAILABLE")
+                VehicleStatus availableStatus = vehicleStatusRepo.findByName("Available")
                         .orElseThrow(() -> new RuntimeException("VehicleStatus 'AVAILABLE' not found"));
                 v.setStatus(availableStatus);
                 vehicleRepo.save(v);
@@ -134,6 +160,8 @@ public class BookingServiceImpl implements BookingService {
 
         // Broadcast cancellation
         messagingTemplate.convertAndSend("/topic/bookings", saved);
+        logger.info("✅ Booking cancelled: ID={}", bookingId);
+
         return saved;
     }
 
@@ -150,24 +178,28 @@ public class BookingServiceImpl implements BookingService {
         Booking b = bookingRepo.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking not found"));
 
-        // Update booking to REJECTED status
-        b.setStatus(BookingStatus.REJECTED);
+        // Check if can be cancelled
+        if (b.getStatus() != BookingStatus.PENDING && b.getStatus() != BookingStatus.CONFIRMED) {
+            throw new RuntimeException("Can only cancel PENDING or CONFIRMED bookings");
+        }
+
+        // Set to CANCELLED (not REJECTED)
+        b.setStatus(BookingStatus.CANCELLED);
         b.setRejectedBy("MANAGER");
         b.setRejectReason(reason);
         b.setUpdatedAt(LocalDateTime.now());
 
         Booking saved = bookingRepo.save(b);
 
-        // Broadcast rejection to remove from driver dashboards immediately
+        // Broadcast cancellation
         String topic = "/topic/bookings/requests/" + saved.getVehicleType().toUpperCase();
         messagingTemplate.convertAndSend(topic, Map.of(
-                "action", "MANAGER_REJECTED",
+                "action", "MANAGER_CANCELLED",
                 "bookingId", saved.getId(),
                 "booking", saved
         ));
 
-        // Notify customer
-        messagingTemplate.convertAndSend("/topic/bookings/customer/" + saved.getCustomerId(), saved);
+        logger.info("✅ Booking manager-rejected: ID={}, Reason={}", bookingId, reason);
 
         return saved;
     }
@@ -207,11 +239,12 @@ public class BookingServiceImpl implements BookingService {
                 .orElseThrow(() -> new RuntimeException("Driver not found"));
 
         // Get vehicle assigned to this driver
-        Vehicle assignedVehicle = vehicleRepo.findByAssignedDriverId(driverId)
+        Vehicle assignedVehicle = vehicleRepo.findByDriverId(driverId)
                 .orElse(null);
 
         if (assignedVehicle == null) {
             // Driver has no assigned vehicle, return empty list
+            logger.warn("⚠️ Driver {} has no assigned vehicle", driverId);
             return new ArrayList<>();
         }
 
@@ -219,91 +252,133 @@ public class BookingServiceImpl implements BookingService {
                 assignedVehicle.getType().getName() : null;
 
         if (vehicleType == null) {
+            logger.warn("⚠️ Vehicle {} has no type assigned", assignedVehicle.getId());
             return new ArrayList<>();
         }
 
         // Return PENDING bookings for this vehicle type that are NOT rejected by manager
-        return bookingRepo.findAll().stream()
+        List<Booking> pendingBookings = bookingRepo.findAll().stream()
                 .filter(b -> b.getStatus() == BookingStatus.PENDING)
                 .filter(b -> vehicleType.equalsIgnoreCase(b.getVehicleType()))
                 .filter(b -> b.getRejectedBy() == null || !"MANAGER".equals(b.getRejectedBy()))
                 .filter(b -> b.getAssignedDriverId() == null) // Not yet assigned to any driver
                 .collect(Collectors.toList());
+
+        logger.info("✅ Retrieved {} pending bookings for driver {} (Vehicle Type: {})",
+                pendingBookings.size(), driverId, vehicleType);
+
+        return pendingBookings;
     }
 
     @Override
     public List<Booking> getConfirmedBookingsForDriver(Long driverId) {
-        return bookingRepo.findAll().stream()
+        List<Booking> confirmedBookings = bookingRepo.findAll().stream()
                 .filter(b -> b.getStatus() == BookingStatus.CONFIRMED)
                 .filter(b -> driverId.equals(b.getAssignedDriverId()))
                 .collect(Collectors.toList());
+
+        logger.info("✅ Retrieved {} confirmed bookings for driver {}", confirmedBookings.size(), driverId);
+
+        return confirmedBookings;
     }
 
     @Override
     @Transactional
     public Booking driverAcceptBooking(Long bookingId, Long driverId) {
-        Booking b = bookingRepo.findById(bookingId)
+        logger.info("🚗 Driver {} accepting booking {}", driverId, bookingId);
+
+        // 1. Find booking
+        Booking booking = bookingRepo.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking not found"));
 
-        // Verify booking is PENDING and not rejected
-        if (b.getStatus() != BookingStatus.PENDING) {
-            throw new RuntimeException("Booking is not in PENDING status");
+        // 2. Validate booking status
+        if (booking.getStatus() != BookingStatus.PENDING) {
+            throw new RuntimeException("Only PENDING bookings can be accepted. Current status: " + booking.getStatus());
         }
 
-        if ("MANAGER".equals(b.getRejectedBy())) {
-            throw new RuntimeException("Booking was rejected by manager");
-        }
+        // 3. Verify driver exists
+        User driver = userRepo.findById(driverId)
+                .orElseThrow(() -> new RuntimeException("Driver not found"));
 
-        // Get driver's assigned vehicle
+        // 4. Get driver's assigned vehicle
         Vehicle assignedVehicle = vehicleRepo.findByAssignedDriverId(driverId)
                 .orElseThrow(() -> new RuntimeException("Driver has no assigned vehicle"));
 
-        // Verify vehicle type matches
-        String vehicleType = assignedVehicle.getType() != null ?
+        // 5. Check vehicle type matches booking
+        String vehicleTypeName = assignedVehicle.getType() != null ?
                 assignedVehicle.getType().getName() : null;
 
-        if (vehicleType == null || !vehicleType.equalsIgnoreCase(b.getVehicleType())) {
-            throw new RuntimeException("Vehicle type mismatch");
+        if (vehicleTypeName == null || !vehicleTypeName.equalsIgnoreCase(booking.getVehicleType())) {
+            throw new RuntimeException(String.format(
+                    "Vehicle type mismatch. Booking requires %s, but driver has %s",
+                    booking.getVehicleType(), vehicleTypeName
+            ));
         }
 
-        // Check for overlapping bookings for this vehicle
-        List<Booking> overlaps = bookingRepo.findOverlappingConfirmed(
-                assignedVehicle.getId(), b.getStartTime(), b.getEndTime());
+        // 6. Update booking with driver and vehicle
+        booking.setAssignedDriverId(driverId);
+        booking.setVehicleId(assignedVehicle.getId());
+        booking.setStatus(BookingStatus.CONFIRMED);
+        booking.setUpdatedAt(LocalDateTime.now());
 
-        if (!overlaps.isEmpty()) {
-            throw new RuntimeException("Vehicle is already booked for this time period");
+        // 7. Save booking FIRST
+        booking = bookingRepo.save(booking);
+        logger.info("✅ Booking updated: ID={}, Driver={}, Vehicle={}",
+                booking.getId(), driverId, assignedVehicle.getId());
+
+        // 8. Update vehicle status to "In Use"
+        try {
+            VehicleStatus inUseStatus = vehicleStatusRepo.findByName("In Use")
+                    .orElseThrow(() -> new RuntimeException("VehicleStatus 'In Use' not found"));
+            assignedVehicle.setStatus(inUseStatus);
+            assignedVehicle.setLastUpdated(LocalDateTime.now());
+            vehicleRepo.save(assignedVehicle);
+            logger.info("✅ Vehicle {} status updated to 'In Use'", assignedVehicle.getId());
+        } catch (Exception e) {
+            logger.error("❌ Failed to update vehicle status: {}", e.getMessage());
+            // Continue - don't fail the transaction
         }
 
-        // Accept booking
-        b.setStatus(BookingStatus.CONFIRMED);
-        b.setAssignedDriverId(driverId);
-        b.setVehicleId(assignedVehicle.getId());
-        b.setUpdatedAt(LocalDateTime.now());
+        // 9. Create route for driver ✅ FIXED BUILDER USAGE
+        try {
+            DriverRoute route = DriverRoute.builder()
+                    .booking(booking)           // ✅ Booking entity
+                    .driver(driver)             // ✅ User entity (driver)
+                    .vehicle(assignedVehicle)   // ✅ Vehicle entity
+                    .pickupLocation(booking.getPickupLocation())
+                    .dropoffLocation(booking.getDropoffLocation())
+                    .status(RouteStatus.ASSIGNED)
+                    .distanceKm(0.0)
+                    .estimatedTimeMinutes(0.0)
+                    .trafficLevel(0.5)
+                    .batteryLevelAtStart(assignedVehicle.getBatteryLevel())
+                    .fuelLevelAtStart(assignedVehicle.getFuelLevel())
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
 
-        // Mark vehicle as IN_USE
-        VehicleStatus inUseStatus = vehicleStatusRepo.findByName("In Use")
-                .orElseThrow(() -> new RuntimeException("VehicleStatus 'In Use' not found"));
-        assignedVehicle.setStatus(inUseStatus);
-        vehicleRepo.save(assignedVehicle);
+            driverRouteRepository.save(route);
+            logger.info("✅ Route created: ID={}, Driver={}, Vehicle={}",
+                    route.getId(), driverId, assignedVehicle.getId());
 
-        Booking saved = bookingRepo.save(b);
+        } catch (Exception e) {
+            logger.error("❌ Failed to create route: {}", e.getMessage(), e);
+            // Log but don't fail transaction - route can be created later
+        }
 
-        // Broadcast to customer
-        messagingTemplate.convertAndSend("/topic/bookings/customer/" + saved.getCustomerId(), saved);
+        // 10. Broadcast update via WebSocket
+        try {
+            messagingTemplate.convertAndSend("/topic/bookings", booking);
+            messagingTemplate.convertAndSend("/topic/bookings/driver/" + driverId, booking);
+            logger.info("✅ WebSocket notifications sent");
+        } catch (Exception e) {
+            logger.warn("⚠️ Failed to send WebSocket notification: {}", e.getMessage());
+        }
 
-        // Broadcast to manager dashboard
-        messagingTemplate.convertAndSend("/topic/bookings/manager", saved);
-
-        // Remove from other drivers' queues
-        String topic = "/topic/bookings/requests/" + saved.getVehicleType().toUpperCase();
-        messagingTemplate.convertAndSend(topic, Map.of(
-                "action", "DRIVER_ACCEPTED",
-                "bookingId", saved.getId(),
-                "driverId", driverId
-        ));
-
-        return saved;
+        return booking;
     }
+
+
 
     @Override
     @Transactional
@@ -311,17 +386,11 @@ public class BookingServiceImpl implements BookingService {
         Booking b = bookingRepo.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking not found"));
 
-        // Booking stays PENDING but track driver rejection
-        // You could add a field `driverRejections` to track which drivers rejected
+        // Booking stays PENDING for other drivers to accept
         b.setUpdatedAt(LocalDateTime.now());
-
-        // Optional: Add to rejection log (if you want to track)
-        // For now, booking remains PENDING for other drivers
-
         Booking saved = bookingRepo.save(b);
 
-        // Log or notify (optional)
-        System.out.println("Driver " + driverId + " rejected booking " + bookingId + ": " + reason);
+        logger.info("⚠️ Driver {} rejected booking {}: {}", driverId, bookingId, reason);
 
         return saved;
     }
@@ -375,9 +444,11 @@ public class BookingServiceImpl implements BookingService {
 
             Booking saved = bookingRepo.save(b);
             messagingTemplate.convertAndSend("/topic/bookings", saved);
+            logger.info("✅ Booking {} confirmed (legacy method)", bookingId);
             return saved;
         }
 
+        logger.warn("⚠️ Could not confirm booking {} - no available vehicles", bookingId);
         return b; // Cannot confirm; remain pending
     }
 
@@ -437,7 +508,7 @@ public class BookingServiceImpl implements BookingService {
                 .collect(Collectors.toList());
 
         // Convert to recommendation format
-        return filtered.stream().map(v -> {
+        List<Map<String, Object>> recommendations = filtered.stream().map(v -> {
             Map<String, Object> rec = new HashMap<>();
             rec.put("id", v.getId());
             rec.put("name", v.getName());
@@ -449,16 +520,55 @@ public class BookingServiceImpl implements BookingService {
             rec.put("matchScore", calculateMatchScore(v, customerId)); // AI scoring
             return rec;
         }).collect(Collectors.toList());
+
+        logger.info("✅ Generated {} AI recommendations for customer {}", recommendations.size(), customerId);
+
+        return recommendations;
     }
 
     private double calculateMatchScore(Vehicle vehicle, Long customerId) {
         // Simple AI scoring based on vehicle condition
         double score = 0.5; // base score
 
-        if (vehicle.getBatteryLevel() > 80) score += 0.2;
-        if (vehicle.getFuelLevel() > 70) score += 0.2;
+        if (vehicle.getBatteryLevel() != null && vehicle.getBatteryLevel() > 80) score += 0.2;
+        if (vehicle.getFuelLevel() != null && vehicle.getFuelLevel() > 70) score += 0.2;
         if (vehicle.getIsEv() != null && vehicle.getIsEv()) score += 0.1;
 
         return Math.min(1.0, score);
+    }
+
+    public List<Map<String, Object>> getRecommendedSlots(Long vehicleId, LocalDate date) {
+        List<BookingSlot> slots = bookingSlotService.getAvailableSlots(vehicleId, date);
+        List<Map<String, Object>> recommended = new ArrayList<>();
+
+        for (BookingSlot slot : slots) {
+            Map<String, Object> slotInfo = new HashMap<>();
+            slotInfo.put("slotId", slot.getId());
+            slotInfo.put("startTime", slot.getStartTime().toString());
+            slotInfo.put("endTime", slot.getEndTime().toString());
+            slotInfo.put("pricePerHour", slot.getPricePerHour());
+            slotInfo.put("totalPrice", calculateSlotPrice(slot));
+            recommended.add(slotInfo);
+        }
+
+        logger.info("✅ {} Recommended slots for Vehicle {}", recommended.size(), vehicleId);
+        return recommended;
+    }
+
+    private Double calculateSlotPrice(BookingSlot slot) {
+        long duration = java.time.temporal.ChronoUnit.HOURS.between(slot.getStartTime(), slot.getEndTime());
+        return slot.getPricePerHour() * Math.max(1, duration);
+    }
+
+    /**
+     * Get availability calendar
+     */
+    public Map<LocalDate, List<Map<String, Object>>> getBookingCalendar(Long vehicleId, LocalDate startDate, LocalDate endDate) {
+        return bookingSlotService.getAvailabilityCalendar(vehicleId, startDate, endDate);
+    }
+
+    @Override
+    public void createRouteFromBooking(Booking booking, Long driverId) {
+
     }
 }
