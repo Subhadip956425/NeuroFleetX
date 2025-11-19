@@ -23,6 +23,10 @@ import { connectMaintenanceSocket } from "../../api/wsMaintenance";
 import AlertsTable from "../maintenance/AlertsTable.jsx";
 import VehicleHealthCard from "../maintenance/VehicleHealthCard.jsx";
 import BookingManager from "../booking/BookingManager.jsx";
+import vehicleApi from "../../api/vehicleApi";
+import VehicleCard from "../VehicleCard.jsx";
+// Add these new imports after your existing imports
+import AIMaintenanceDashboard from "../maintenance/AIMaintenanceDashboard";
 
 const ManagerDashboard = () => {
   const { state, dispatch } = useGlobalState();
@@ -43,6 +47,7 @@ const ManagerDashboard = () => {
   const [trips, setTrips] = useState([]);
   const [selectedDriver, setSelectedDriver] = useState("");
   const [maintenanceTickets, setMaintenanceTickets] = useState([]);
+  const [criticalVehicles, setCriticalVehicles] = useState([]);
 
   const canvasRef = useRef(null);
   const mouseX = useMotionValue(0);
@@ -197,26 +202,52 @@ const ManagerDashboard = () => {
   // Load data
   // Move outside of useEffect
   const loadData = async () => {
-    // Load vehicles
-    const vehicles = await fetchVehicles();
-    dispatch({ type: actionTypes.SET_VEHICLES, payload: vehicles });
-
-    // Load drivers
     try {
-      const driversRes = await axiosInstance.get("/manager/drivers");
-      setDrivers(driversRes.data || []);
+      // ✅ FIXED: Use vehicleApi directly to get fresh data
+      const vehicles = await vehicleApi.fetchVehicles("MANAGER");
+
+      // ✅ Map vehicles to ensure all properties are present
+      const normalizedVehicles = vehicles.map((v) => ({
+        ...v,
+        assignedDriverId: v.assignedDriverId || null,
+        assignedDriverName: v.assignedDriverName || null,
+        status: v.status || "Available",
+      }));
+
+      dispatch({ type: actionTypes.SET_VEHICLES, payload: normalizedVehicles });
+      console.log("✅ Vehicles loaded:", normalizedVehicles);
+
+      // Load drivers
+      try {
+        const driversRes = await axiosInstance.get("/manager/drivers");
+        setDrivers(driversRes.data || []);
+      } catch (error) {
+        console.error("Error loading drivers:", error);
+        setDrivers([]);
+      }
+
+      // Load trips
+      try {
+        const tripsRes = await axiosInstance.get("/trips");
+        setTrips(tripsRes.data || []);
+      } catch (error) {
+        console.error("Error loading trips:", error);
+        setTrips([]);
+      }
     } catch (error) {
-      console.error("Error loading drivers:", error);
-      setDrivers([]);
+      console.error("Error loading data:", error);
     }
+  };
 
-    // Load trips
+  // ✅ NEW: Load critical vehicle alerts
+  const loadCriticalVehicles = async () => {
     try {
-      const tripsRes = await axiosInstance.get("/trips");
-      setTrips(tripsRes.data || []);
+      const critical = await maintenanceApi.getCriticalVehicles();
+      setCriticalVehicles(critical);
+      console.log("🚨 Critical vehicles loaded:", critical);
     } catch (error) {
-      console.error("Error loading trips:", error);
-      setTrips([]);
+      console.error("Error loading critical vehicles:", error);
+      setCriticalVehicles([]);
     }
   };
 
@@ -230,10 +261,42 @@ const ManagerDashboard = () => {
     }
   };
 
+  // Add this after handleUnassignDriver function:
+
+  const handleEditVehicle = (vehicle) => {
+    console.log("✏️ Editing vehicle:", vehicle.id);
+    setSelectedVehicle(vehicle);
+    setShowModal(true);
+  };
+
+  const handleDeleteVehicle = async (vehicleId) => {
+    if (!window.confirm("🚫 Are you sure you want to delete this vehicle?")) {
+      return;
+    }
+
+    try {
+      console.log("🗑️ Deleting vehicle:", vehicleId);
+      await axiosInstance.delete(`/manager/vehicles/${vehicleId}`);
+
+      // Update state
+      const updatedVehicles = state.vehicles.filter((v) => v.id !== vehicleId);
+      dispatch({
+        type: actionTypes.SET_VEHICLES,
+        payload: updatedVehicles,
+      });
+
+      alert("✅ Vehicle deleted successfully");
+    } catch (error) {
+      console.error("❌ Error deleting vehicle:", error);
+      alert(`❌ Failed to delete vehicle: ${error.message}`);
+    }
+  };
+
   // Call it in useEffect
   useEffect(() => {
     loadData();
     loadRoutes();
+    loadCriticalVehicles();
 
     connectWebSocket((data) =>
       dispatch({ type: actionTypes.UPDATE_TELEMETRY, payload: data })
@@ -267,34 +330,84 @@ const ManagerDashboard = () => {
     setShowModal(true);
   };
 
-  const handleAssignDriver = (vehicle) => {
-    setSelectedForAssignment(vehicle);
-    setShowAssignModal(true);
-  };
+  // Replace with this single, correct implementation:
 
-  // Manager Operations
-  const handleSubmitAssignment = async (vehicleId, driverId) => {
-    if (!driverId) {
-      alert("Please select a driver");
+  const handleAssignDriver = async (vehicle) => {
+    if (!vehicle || !vehicle.id) {
+      alert("❌ Invalid vehicle");
       return;
     }
 
     try {
-      // Call backend
-      const res = await axiosInstance.post(
-        `/manager/vehicles/${vehicleId}/assign/${driverId}`
-      );
+      setSelectedForAssignment(vehicle);
+      setShowAssignModal(true);
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  };
 
-      const updatedVehicle = res.data; // backend should return updated vehicle
+  const handleSubmitAssignment = async (vehicleId, driverId) => {
+    if (!driverId) {
+      alert("❌ Please select a driver");
+      return;
+    }
 
-      // Ensure local UI is updated instantly
+    try {
+      console.log(`👤 Assigning driver ${driverId} to vehicle ${vehicleId}`);
+
+      const updatedVehicle = await vehicleApi.assignDriver(vehicleId, driverId);
+      console.log("✅ Backend response:", updatedVehicle);
+
+      // ✅ Update state immediately
+      const updatedVehicles = state.vehicles.map((v) => {
+        if (v.id === vehicleId) {
+          const updated = {
+            ...v,
+            assignedDriverId: updatedVehicle.assignedDriverId,
+            status: updatedVehicle.status || "In Use",
+          };
+          console.log("✅ Updated vehicle in state:", updated);
+          return updated;
+        }
+        return v;
+      });
+
+      dispatch({
+        type: actionTypes.SET_VEHICLES,
+        payload: updatedVehicles,
+      });
+
+      alert(`✅ Driver assigned successfully`);
+      setShowAssignModal(false);
+      setSelectedForAssignment(null);
+      setSelectedDriver("");
+    } catch (error) {
+      console.error("❌ Error:", error);
+      alert(`❌ Failed: ${error.message}`);
+    }
+  };
+
+  const handleUnassignDriver = async (vehicle) => {
+    if (!window.confirm(`🚫 Unassign driver from ${vehicle.name}?`)) {
+      return;
+    }
+
+    try {
+      console.log(`🚫 Unassigning driver from vehicle ${vehicle.id}`);
+
+      const updatedVehicle = await vehicleApi.unassignDriver(vehicle.id);
+
+      console.log("✅ Unassignment successful:", updatedVehicle);
+
+      // ✅ Update state
       const updatedVehicles = state.vehicles.map((v) =>
-        v.id === vehicleId
+        v.id === vehicle.id
           ? {
               ...v,
-              assignedDriverId: updatedVehicle.assignedDriverId,
-              assignedDriverName: updatedVehicle.assignedDriverName,
-              status: "In Use", // optional: if assigning changes status
+              ...updatedVehicle, // ✅ Spread all properties
+              assignedDriverId: null,
+              assignedDriverName: null,
+              status: updatedVehicle.status || "Available",
             }
           : v
       );
@@ -304,15 +417,16 @@ const ManagerDashboard = () => {
         payload: updatedVehicles,
       });
 
-      // Ensure the driver object exists and has a name
+      alert(`✅ Driver unassigned from ${vehicle.name}`);
 
-      alert(`Driver assigned to ${updatedVehicle.assignedDriverName}`);
-      setShowAssignModal(false);
-      setSelectedForAssignment(null);
-      setSelectedDriver("");
+      // ✅ RELOAD data from backend
+      setTimeout(() => {
+        loadData();
+      }, 1000);
     } catch (error) {
-      console.error("Error assigning driver:", error);
-      alert("Failed to assign driver");
+      console.error("❌ Error unassigning driver:", error);
+      const errorMsg = error.response?.data?.message || error.message;
+      alert(`❌ Failed to unassign driver: ${errorMsg}`);
     }
   };
 
@@ -466,6 +580,16 @@ const ManagerDashboard = () => {
                 Create Trip
               </motion.button>
 
+              <motion.button
+                whileHover={{ scale: 1.05, y: -2 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => navigate("/manager/maintenance")}
+                className="px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
+              >
+                <span className="mr-2">🔧</span>
+                Maintenance Analytics
+              </motion.button>
+
               {/* View Mode Toggle */}
               <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-1 rounded-xl border border-white/20">
                 {[
@@ -476,6 +600,11 @@ const ManagerDashboard = () => {
                   { mode: "bookings", icon: "📋", label: "Bookings" },
                   { mode: "optimizer", icon: "🎯", label: "Route Optimizer" },
                   { mode: "maintenance", icon: "🔧", label: "Maintenance" },
+                  {
+                    mode: "ai-maintenance",
+                    icon: "🤖",
+                    label: "AI Predictions",
+                  },
                 ].map((item) => (
                   <motion.button
                     key={item.mode}
@@ -573,6 +702,66 @@ const ManagerDashboard = () => {
             </div>
           </div>
         </motion.div>
+
+        {/* ✅ NEW: Critical Maintenance Alerts Banner */}
+        {criticalVehicles.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="backdrop-blur-xl bg-red-500/10 border border-red-500/30 rounded-3xl p-6"
+          >
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-4">
+                <motion.div
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="text-5xl"
+                >
+                  🚨
+                </motion.div>
+                <div>
+                  <h3 className="text-2xl font-bold text-red-400">
+                    {criticalVehicles.length} Critical Maintenance Alert
+                    {criticalVehicles.length > 1 ? "s" : ""}
+                  </h3>
+                  <p className="text-red-300 text-sm mt-1">
+                    {criticalVehicles.length} vehicle
+                    {criticalVehicles.length > 1
+                      ? "s require"
+                      : " requires"}{" "}
+                    immediate attention
+                  </p>
+                </div>
+              </div>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setViewMode("ai-maintenance")}
+                className="px-6 py-3 bg-red-500 text-white font-bold rounded-xl shadow-lg hover:bg-red-600 transition-all"
+              >
+                View AI Analysis →
+              </motion.button>
+            </div>
+
+            {/* Critical Vehicles Preview */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
+              {criticalVehicles.slice(0, 3).map((vehicle) => (
+                <div
+                  key={vehicle.vehicleId}
+                  className="bg-red-500/20 border border-red-500/40 rounded-xl p-3"
+                >
+                  <p className="text-white font-bold text-sm">
+                    Vehicle #{vehicle.vehicleId}
+                  </p>
+                  <p className="text-red-300 text-xs mt-1">{vehicle.message}</p>
+                  <p className="text-red-400 text-xs mt-1">
+                    ⏰ {vehicle.daysUntilMaintenance} days remaining
+                  </p>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
         {/* Manager Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
@@ -699,191 +888,34 @@ const ManagerDashboard = () => {
             </motion.div>
           )}
 
+          {/* Grid View */}
           {viewMode === "grid" && (
             <motion.div
               key="grid"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+              transition={{ duration: 0.3 }}
             >
-              {filteredVehicles.map((vehicle, index) => {
-                // Vehicle Type Configuration
-                const typeConfig = {
-                  Car: {
-                    icon: "🚗",
-                    bg: "from-blue-500/20 to-cyan-500/10",
-                    text: "text-blue-400",
-                  },
-                  Van: {
-                    icon: "🚐",
-                    bg: "from-purple-500/20 to-pink-500/10",
-                    text: "text-purple-400",
-                  },
-                  Truck: {
-                    icon: "🚚",
-                    bg: "from-orange-500/20 to-red-500/10",
-                    text: "text-orange-400",
-                  },
-                  EV: {
-                    icon: "⚡",
-                    bg: "from-green-500/20 to-emerald-500/10",
-                    text: "text-green-400",
-                  },
-                  Bike: {
-                    icon: "🏍️",
-                    bg: "from-yellow-500/20 to-amber-500/10",
-                    text: "text-yellow-400",
-                  },
-                };
-
-                const currentType = typeConfig[vehicle.type] || typeConfig.Car;
-
-                return (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {state.vehicles?.map((vehicle, index) => (
                   <motion.div
                     key={vehicle.id}
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: index * 0.05 }}
                   >
-                    <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
-                      {/* Header with Vehicle Name and Type Icon */}
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                          <h3 className="text-xl font-bold text-white mb-2">
-                            {vehicle.name}
-                          </h3>
-
-                          {/* Vehicle Type Badge */}
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ delay: 0.1 }}
-                            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl backdrop-blur-sm border border-white/20 bg-gradient-to-r ${currentType.bg}`}
-                          >
-                            <motion.span
-                              animate={{ rotate: [0, 10, -10, 0] }}
-                              transition={{
-                                duration: 2,
-                                repeat: Infinity,
-                                repeatDelay: 3,
-                              }}
-                              className="text-lg"
-                            >
-                              {currentType.icon}
-                            </motion.span>
-                            <span
-                              className={`text-sm font-bold ${currentType.text}`}
-                            >
-                              {vehicle.type}
-                            </span>
-                          </motion.div>
-                        </div>
-
-                        {/* Large Type Icon */}
-                        <motion.div
-                          whileHover={{ scale: 1.2, rotate: 360 }}
-                          transition={{ duration: 0.3 }}
-                          className="text-3xl"
-                        >
-                          {currentType.icon}
-                        </motion.div>
-                      </div>
-
-                      {/* Status Badge */}
-                      <div className="mb-4">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            vehicle.status === "Available"
-                              ? "bg-green-500/20 text-green-400"
-                              : vehicle.status === "In Use"
-                              ? "bg-yellow-500/20 text-yellow-400"
-                              : "bg-red-500/20 text-red-400"
-                          }`}
-                        >
-                          {vehicle.status}
-                        </span>
-                      </div>
-
-                      {/* Metrics */}
-                      <div className="space-y-2 mb-4">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-white/60">🔋 Battery</span>
-                          <span className="text-white font-semibold">
-                            {vehicle.batteryLevel}%
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-white/60">⛽ Fuel</span>
-                          <span className="text-white font-semibold">
-                            {vehicle.fuelLevel}%
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-white/60">💨 Speed</span>
-                          <span className="text-white font-semibold">
-                            {vehicle.speed} km/h
-                          </span>
-                        </div>
-
-                        {/* Driver Display */}
-                        <div className="flex justify-between text-sm pt-2 border-t border-white/10">
-                          <span className="text-white/60">👤 Driver</span>
-                          <span className="text-white font-semibold">
-                            {vehicle.assignedDriver?.fullName ||
-                              vehicle.assignedDriverName ||
-                              "Unassigned"}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex gap-2 flex-wrap">
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => handleViewVehicle(vehicle)}
-                          className="flex-1 px-4 py-2 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-xl font-semibold hover:bg-purple-500/30 transition-all text-sm"
-                        >
-                          👁️ View
-                        </motion.button>
-
-                        {/* Conditional Assign/Cancel button */}
-                        {vehicle.assignedDriverName ? (
-                          <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => handleCancelAssignment(vehicle)}
-                            className="flex-1 px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl font-semibold hover:bg-red-500/30 transition-all text-sm"
-                          >
-                            ❌ Cancel
-                          </motion.button>
-                        ) : (
-                          <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => handleAssignDriver(vehicle)}
-                            className="flex-1 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl font-semibold hover:bg-blue-500/30 transition-all text-sm"
-                          >
-                            👤 Assign
-                          </motion.button>
-                        )}
-
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() =>
-                            handleScheduleMaintenance(vehicle.id, vehicle.name)
-                          }
-                          className="w-full px-4 py-2 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-xl font-semibold hover:bg-orange-500/30 transition-all text-sm mt-2"
-                        >
-                          🔧 Maintain
-                        </motion.button>
-                      </div>
-                    </div>
+                    <VehicleCard
+                      key={`vehicle-${vehicle.id}-${vehicle.assignedDriverId}`}
+                      vehicle={vehicle}
+                      onEdit={handleEditVehicle}
+                      onDelete={handleDeleteVehicle}
+                      onAssign={handleAssignDriver} // ✅ ADD
+                      onUnassign={handleUnassignDriver} // ✅ ADD
+                    />
                   </motion.div>
-                );
-              })}
+                ))}
+              </div>
             </motion.div>
           )}
 
@@ -1124,6 +1156,19 @@ const ManagerDashboard = () => {
               </div>
             </motion.div>
           )}
+
+          {/* ✅ NEW: AI Maintenance Prediction View */}
+          {viewMode === "ai-maintenance" && (
+            <motion.div
+              key="ai-maintenance"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <AIMaintenanceDashboard />
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {/* Empty State */}
@@ -1214,6 +1259,7 @@ const ManagerDashboard = () => {
       )}
 
       {/* Assign Driver Modal */}
+      {/* Assign Driver Modal */}
       {showAssignModal && (
         <AnimatePresence>
           <motion.div
@@ -1231,7 +1277,7 @@ const ManagerDashboard = () => {
               className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl p-8 max-w-md w-full"
             >
               <h2 className="text-2xl font-bold text-white mb-6">
-                Assign Driver
+                👤 Assign Driver
               </h2>
               {selectedForAssignment && (
                 <>
@@ -1247,7 +1293,7 @@ const ManagerDashboard = () => {
                     className="w-full p-3 bg-white/10 text-white border border-white/20 rounded-xl focus:outline-none focus:border-purple-500 mb-6"
                   >
                     <option value="" className="bg-gray-800">
-                      Select a driver
+                      Select a driver...
                     </option>
                     {drivers.map((driver) => (
                       <option
@@ -1265,7 +1311,11 @@ const ManagerDashboard = () => {
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => setShowAssignModal(false)}
+                      onClick={() => {
+                        setShowAssignModal(false);
+                        setSelectedForAssignment(null);
+                        setSelectedDriver("");
+                      }}
                       className="flex-1 px-6 py-3 bg-white/10 text-white font-bold rounded-xl hover:bg-white/20 transition-all"
                     >
                       Cancel
@@ -1276,12 +1326,12 @@ const ManagerDashboard = () => {
                       onClick={() =>
                         handleSubmitAssignment(
                           selectedForAssignment.id,
-                          selectedDriver
+                          parseInt(selectedDriver)
                         )
                       }
                       className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
                     >
-                      Assign
+                      ✅ Assign
                     </motion.button>
                   </div>
                 </>

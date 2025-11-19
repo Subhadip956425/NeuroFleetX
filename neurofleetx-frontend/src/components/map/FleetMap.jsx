@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { motion } from "framer-motion";
 import "leaflet/dist/leaflet.css";
+import routeApi from "../../api/routeApi"; // ✅ ADD THIS
 
 // Fix Leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -121,9 +122,99 @@ export default function FleetMap({
 }) {
   const [mapStyle, setMapStyle] = useState(defaultStyle);
   const [mapView, setMapView] = useState("all");
+  const [liveVehicleLocations, setLiveVehicleLocations] = useState({}); // ✅ NEW: Store live locations
+  const [isLoadingLocations, setIsLoadingLocations] = useState(false); // ✅ NEW: Loading state
+
+  // ✅ NEW: Fetch live locations for all vehicles
+  useEffect(() => {
+    const fetchLiveLocations = async () => {
+      if (vehicles.length === 0) return;
+
+      setIsLoadingLocations(true);
+      console.log(
+        "📍 Fetching live locations for",
+        vehicles.length,
+        "vehicles"
+      );
+
+      const locationPromises = vehicles.map(async (vehicle) => {
+        try {
+          const response = await routeApi.getVehicleLiveLocation(vehicle.id);
+          return {
+            id: vehicle.id,
+            ...response.data,
+          };
+        } catch (error) {
+          console.error(
+            `❌ Error fetching location for vehicle ${vehicle.id}:`,
+            error
+          );
+          // Return database location as fallback
+          return {
+            id: vehicle.id,
+            latitude: vehicle.latitude,
+            longitude: vehicle.longitude,
+            speed: vehicle.speed || 0,
+            batteryLevel: vehicle.batteryLevel || 0,
+            fuelLevel: vehicle.fuelLevel || 0,
+            timestamp: Date.now(),
+            isLive: false,
+          };
+        }
+      });
+
+      const locations = await Promise.all(locationPromises);
+
+      // Convert array to object for quick lookup
+      const locationsMap = {};
+      locations.forEach((loc) => {
+        locationsMap[loc.id] = loc;
+      });
+
+      console.log("✅ Live locations fetched:", locationsMap);
+      setLiveVehicleLocations(locationsMap);
+      setIsLoadingLocations(false);
+    };
+
+    // Fetch immediately
+    fetchLiveLocations();
+
+    // Set up periodic refresh (every 30 seconds)
+    const interval = setInterval(() => {
+      console.log("🔄 Refreshing live locations...");
+      fetchLiveLocations();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [vehicles]);
+
+  // ✅ UPDATED: Merge vehicle data with live locations
+  const vehiclesWithLiveData = vehicles.map((v) => {
+    const liveData = liveVehicleLocations[v.id];
+
+    if (liveData) {
+      return {
+        ...v,
+        latitude: liveData.latitude, // ✅ Use live latitude
+        longitude: liveData.longitude, // ✅ Use live longitude
+        speed: liveData.speed || v.speed,
+        batteryLevel: liveData.batteryLevel || v.batteryLevel,
+        fuelLevel: liveData.fuelLevel || v.fuelLevel,
+        heading: liveData.heading,
+        timestamp: liveData.timestamp,
+        isLiveData: liveData.isLive !== false, // Mark if it's real-time data
+      };
+    }
+
+    // No live data available, use database values
+    return {
+      ...v,
+      isLiveData: false,
+    };
+  });
 
   // Filter vehicles for map
-  const mapVehicles = vehicles
+  const mapVehicles = vehiclesWithLiveData
     .filter((v) => {
       if (mapView === "available") return v.status === "Available";
       if (mapView === "inUse") return v.status === "In Use";
@@ -143,6 +234,7 @@ export default function FleetMap({
     total: vehicles.length,
     available: vehicles.filter((v) => v.status === "Available").length,
     inUse: vehicles.filter((v) => v.status === "In Use").length,
+    liveTracked: Object.keys(liveVehicleLocations).length,
   };
 
   return (
@@ -166,10 +258,29 @@ export default function FleetMap({
                     🗺️
                   </motion.span>
                   <span>Live Fleet Map</span>
+                  {/* ✅ NEW: Live indicator */}
+                  {isLoadingLocations && (
+                    <motion.span
+                      animate={{ rotate: 360 }}
+                      transition={{
+                        duration: 1,
+                        repeat: Infinity,
+                        ease: "linear",
+                      }}
+                      className="text-cyan-400 text-sm"
+                    >
+                      🔄
+                    </motion.span>
+                  )}
                 </h2>
                 <p className="text-white/60 mt-1 text-sm">
                   Real-time vehicle locations • {mapVehicles.length} vehicles
                   displayed
+                  {stats.liveTracked > 0 && (
+                    <span className="text-green-400 ml-2">
+                      • {stats.liveTracked} live tracked 📡
+                    </span>
+                  )}
                 </p>
               </div>
 
@@ -297,9 +408,29 @@ export default function FleetMap({
                         <div>
                           <h3 className="font-bold text-lg text-gray-900">
                             {v.name}
+                            {/* ✅ NEW: Live data indicator */}
+                            {v.isLiveData && (
+                              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                                🔴 LIVE
+                              </span>
+                            )}
                           </h3>
                           <p className="text-sm text-gray-600">{v.type}</p>
                         </div>
+                      </div>
+
+                      {/* ✅ NEW: Coordinates display */}
+                      <div className="mb-3 p-2 bg-gray-50 rounded-lg">
+                        <p className="text-xs text-gray-500">📍 Location</p>
+                        <p className="text-xs font-mono text-gray-700">
+                          {v.latitude.toFixed(4)}, {v.longitude.toFixed(4)}
+                        </p>
+                        {v.timestamp && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Updated:{" "}
+                            {new Date(v.timestamp).toLocaleTimeString()}
+                          </p>
+                        )}
                       </div>
 
                       <div className="space-y-2">
@@ -358,6 +489,20 @@ export default function FleetMap({
                             </div>
                           </div>
                         )}
+
+                        {/* ✅ NEW: Heading indicator */}
+                        {v.heading !== undefined && (
+                          <div className="p-2 bg-indigo-50 rounded-lg">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-gray-600">
+                                🧭 Heading
+                              </span>
+                              <span className="text-sm font-bold text-indigo-700">
+                                {v.heading}°
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </Popup>
@@ -393,6 +538,13 @@ export default function FleetMap({
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-gray-500 rounded-full"></div>
                 <span className="text-sm text-white/70">Offline</span>
+              </div>
+              {/* ✅ NEW: Live tracking indicator */}
+              <div className="flex items-center gap-2 ml-4 border-l border-white/20 pl-4">
+                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                <span className="text-sm text-green-400 font-semibold">
+                  Live Tracked
+                </span>
               </div>
             </div>
           </div>

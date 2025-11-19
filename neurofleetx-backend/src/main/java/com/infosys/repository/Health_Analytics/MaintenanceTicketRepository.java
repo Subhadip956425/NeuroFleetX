@@ -9,4 +9,6 @@ public interface MaintenanceTicketRepository extends JpaRepository<MaintenanceTi
     List<MaintenanceTicket> findByStatus(String status);
     List<MaintenanceTicket> findByReportedById(Long userId);
     List<MaintenanceTicket> findByVehicleId(Long vehicleId);
+
+    List<MaintenanceTicket> findByVehicleIdAndStatus(Long vehicleId, String status);
 }

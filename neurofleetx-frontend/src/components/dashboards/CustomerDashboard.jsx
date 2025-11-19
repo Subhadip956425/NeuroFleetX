@@ -11,6 +11,12 @@ import {
 } from "framer-motion";
 import BookingForm from "../booking/BookingForm.jsx";
 import BookingList from "../booking/BookingList.jsx";
+import bookingApi from "../../api/bookingApi";
+import LiveTripTracker from "../map/LiveTripTracker.jsx";
+import paymentApi from "../../api/paymentApi";
+import PaymentHistory from "../payment/PaymentHistory.jsx"; // ✅ NEW: Import payment component
+import RazorpayCheckout from "../payment/RazorpayCheckout.jsx";
+import ReportIssueModal from "../maintenance/ReportIssueModal.jsx";
 
 const CustomerDashboard = () => {
   const { state, dispatch } = useGlobalState();
@@ -31,6 +37,13 @@ const CustomerDashboard = () => {
     pickupLocation: "",
     dropoffLocation: "",
   });
+
+  const [showReportIssue, setShowReportIssue] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState(null);
+
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedBookingForPayment, setSelectedBookingForPayment] =
+    useState(null);
 
   const canvasRef = useRef(null);
   const mouseX = useMotionValue(0);
@@ -170,6 +183,36 @@ const CustomerDashboard = () => {
     }
   };
 
+  // ✅ NEW: Handle payment initiation
+  const handleInitiatePayment = async (booking) => {
+    console.log("💳 Initiating payment for booking:", booking.id);
+
+    // Check if payment already exists
+    try {
+      const paymentResponse = await paymentApi.getPaymentByBooking(booking.id);
+      if (paymentResponse.data?.status === "COMPLETED") {
+        alert("✅ This booking has already been paid!");
+        return;
+      }
+    } catch (error) {
+      console.log("No existing payment found, proceeding...");
+    }
+
+    setSelectedBookingForPayment(booking);
+    setShowPaymentModal(true);
+  };
+
+  // ✅ NEW: Handle payment success
+  const handlePaymentSuccess = (paymentData) => {
+    console.log("✅ Payment successful:", paymentData);
+    setShowPaymentModal(false);
+    setSelectedBookingForPayment(null);
+    alert("✅ Payment completed successfully!");
+
+    // Reload bookings to update payment status
+    loadCustomerData();
+  };
+
   // Customer Operations
   const handleBookVehicle = (vehicle) => {
     setSelectedVehicle(vehicle);
@@ -187,19 +230,51 @@ const CustomerDashboard = () => {
     }
 
     try {
-      const res = await axiosInstance.post("/customer/bookings", {
+      // ✅ DEBUG: Check authentication
+      const token = localStorage.getItem("jwtToken");
+      const role = localStorage.getItem("role");
+      const userId = localStorage.getItem("userId");
+
+      console.log("🔐 Authentication check:");
+      console.log("  - Token exists:", !!token);
+      console.log("  - Role:", role);
+      console.log("  - UserId:", userId);
+
+      if (!token) {
+        alert("❌ No authentication token found. Please login again.");
+        navigate("/login");
+        return;
+      }
+
+      if (role !== "CUSTOMER" && role !== "ROLE_CUSTOMER") {
+        alert(`❌ Invalid role: ${role}. Must be CUSTOMER.`);
+        return;
+      }
+
+      // ✅ Prepare booking payload
+      const bookingPayload = {
+        customerId: parseInt(userId),
         vehicleId: selectedVehicle.id,
-        customerId: userId,
+        vehicleType: selectedVehicle.type?.name || "Car",
+        isEv: selectedVehicle.isEv || false,
+        seats: bookingDetails.seats || 4,
         pickupLocation: bookingDetails.pickupLocation,
         dropoffLocation: bookingDetails.dropoffLocation || "",
         startTime: new Date(bookingDetails.startDate).toISOString(),
         endTime: new Date(bookingDetails.endDate).toISOString(),
-      });
+      };
+
+      console.log("📤 Submitting booking:", bookingPayload);
+
+      // ✅ Use bookingApi.createBooking
+      const res = await bookingApi.createBooking(bookingPayload);
+
+      console.log("✅ Booking created:", res.data);
 
       const newBooking = {
         ...res.data,
         vehicleName: selectedVehicle.name,
-        status: res.data.status.toLowerCase(),
+        status: res.data.status?.toLowerCase() || "pending",
       };
 
       setMyBookings((prev) => [...prev, newBooking]);
@@ -213,26 +288,43 @@ const CustomerDashboard = () => {
         endDate: "",
         pickupLocation: "",
         dropoffLocation: "",
+        seats: 4,
       });
 
-      alert("Booking successful!");
+      alert("✅ Booking successful!");
     } catch (error) {
-      console.error("Error creating booking:", error);
-      alert("Failed to create booking");
+      console.error("❌ Error creating booking:", error);
+      console.error("❌ Response status:", error.response?.status);
+      console.error("❌ Response data:", error.response?.data);
+
+      if (error.response?.status === 403) {
+        alert("❌ Access Denied (403). Check your role and permissions.");
+      } else if (error.response?.status === 401) {
+        alert("❌ Unauthorized (401). Please login again.");
+        navigate("/login");
+      } else {
+        alert(`❌ Failed to create booking: ${error.message}`);
+      }
     }
   };
 
   const handleCancelBooking = async (bookingId) => {
-    if (!window.confirm("Are you sure you want to cancel this booking?"))
+    if (!window.confirm("Are you sure you want to cancel this booking?")) {
       return;
+    }
 
     try {
-      await axiosInstance.put(`/customer/bookings/${bookingId}/cancel`);
-      alert("Booking cancelled successfully!");
-      loadCustomerData();
+      const userId = localStorage.getItem("userId");
+      console.log("🚫 Cancelling booking:", bookingId);
+
+      await bookingApi.cancelBooking(bookingId, userId);
+
+      setMyBookings((prev) => prev.filter((b) => b.id !== bookingId));
+      console.log("✅ Booking cancelled");
+      alert("✅ Booking cancelled successfully");
     } catch (error) {
-      console.error("Error cancelling booking:", error);
-      alert("Failed to cancel booking");
+      console.error("❌ Error cancelling booking:", error);
+      alert("❌ Failed to cancel booking");
     }
   };
 
@@ -256,6 +348,10 @@ const CustomerDashboard = () => {
     totalBookings: myBookings.length,
     upcomingTrips: customerRoutes.filter((r) => r.status === "active").length,
   };
+
+  const confirmedBookings = myBookings.filter(
+    (b) => b.status === "confirmed" || b.status === "CONFIRMED"
+  );
 
   const activeBookings = myBookings.filter((b) =>
     ["pending", "confirmed"].includes(b.status)
@@ -331,12 +427,22 @@ const CustomerDashboard = () => {
             </div>
 
             <div className="flex gap-3 flex-wrap items-center">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => navigate("/customer/book")}
+                className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
+              >
+                🚗 Book a Vehicle
+              </motion.button>
+
               {/* View Mode Toggle */}
               <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-1 rounded-xl border border-white/20">
                 {[
                   { mode: "bookings", icon: "📋", label: "Bookings" },
                   { mode: "available", icon: "🚗", label: "Available" },
                   { mode: "trips", icon: "🚀", label: "My Trips" },
+                  { mode: "payments", icon: "💰", label: "Payments" },
                   { mode: "history", icon: "📜", label: "History" },
                   { mode: "smart-booking", icon: "🤖", label: "AI Booking" },
                 ].map((item) => (
@@ -496,7 +602,8 @@ const CustomerDashboard = () => {
 
         {/* Content Area */}
         <AnimatePresence mode="wait">
-          {/* My Bookings View */}
+          {/* My Bookings View - FIXED JSX Structure */}
+          {/* My Bookings View - ENHANCED with Payment Status */}
           {viewMode === "bookings" && (
             <motion.div
               key="bookings"
@@ -537,41 +644,121 @@ const CustomerDashboard = () => {
                     >
                       <div className="flex justify-between items-start mb-4">
                         <h3 className="text-lg font-bold text-white">
-                          {booking.vehicleName}
+                          {booking.vehicleName || booking.vehicleType}
                         </h3>
-                        <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold">
-                          {booking.status.charAt(0).toUpperCase() +
-                            booking.status.slice(1)}
-                        </span>
+                        <div className="flex gap-2">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                              booking.status === "confirmed" ||
+                              booking.status === "CONFIRMED"
+                                ? "bg-green-500/20 text-green-400"
+                                : "bg-yellow-500/20 text-yellow-400"
+                            }`}
+                          >
+                            {booking.status.charAt(0).toUpperCase() +
+                              booking.status.slice(1)}
+                          </span>
+                          {/* ✅ NEW: Payment Status Badge */}
+                          {booking.isPaid ? (
+                            <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold border border-green-500/30">
+                              ✅ Paid
+                            </span>
+                          ) : (
+                            <span className="px-3 py-1 bg-orange-500/20 text-orange-400 rounded-full text-xs font-semibold border border-orange-500/30">
+                              💳 Unpaid
+                            </span>
+                          )}
+                        </div>
                       </div>
+
                       <div className="space-y-2 mb-4">
                         <div className="flex justify-between text-sm">
-                          <span className="text-white/60">Start Date:</span>
+                          <span className="text-white/60">Booking ID:</span>
                           <span className="text-white font-semibold">
-                            {new Date(booking.startDate).toLocaleDateString()}
+                            #{booking.id}
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-white/60">End Date:</span>
+                          <span className="text-white/60">Amount:</span>
+                          <span className="text-xl font-black text-cyan-400">
+                            ₹{booking.price?.toFixed(2) || "0.00"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-white/60">Start Date:</span>
                           <span className="text-white font-semibold">
-                            {new Date(booking.endDate).toLocaleDateString()}
+                            {new Date(booking.startTime).toLocaleDateString()}
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span className="text-white/60">Pickup:</span>
-                          <span className="text-white font-semibold">
+                          <span className="text-white font-semibold text-xs">
                             {booking.pickupLocation}
                           </span>
                         </div>
+                        {/* ✅ NEW: Payment Status Row */}
+                        <div className="flex justify-between text-sm pt-2 border-t border-white/10">
+                          <span className="text-white/60">Payment:</span>
+                          {booking.isPaid ? (
+                            <span className="text-green-400 font-bold text-sm">
+                              ✅ Completed
+                            </span>
+                          ) : (
+                            <span className="text-orange-400 font-bold text-sm">
+                              ⏳ Pending
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleCancelBooking(booking.id)}
-                        className="w-full px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl font-semibold hover:bg-red-500/30 transition-all"
-                      >
-                        Cancel Booking
-                      </motion.button>
+
+                      {/* ✅ UPDATED: Conditional Button Rendering */}
+                      {/* ✅ UPDATED: Enhanced Button Rendering with Report Issue */}
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          {!booking.isPaid ? (
+                            <>
+                              <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => handleInitiatePayment(booking)}
+                                className="flex-1 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all"
+                              >
+                                💳 Pay Now
+                              </motion.button>
+                              <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => handleCancelBooking(booking.id)}
+                                className="flex-1 px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl font-semibold hover:bg-red-500/30 transition-all"
+                              >
+                                Cancel
+                              </motion.button>
+                            </>
+                          ) : (
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              className="w-full px-4 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded-xl font-semibold cursor-default"
+                              disabled
+                            >
+                              ✅ Payment Completed
+                            </motion.button>
+                          )}
+                        </div>
+
+                        {/* ✅ NEW: Report Issue Button (Always Available) */}
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            setSelectedBooking(booking);
+                            setShowReportIssue(true);
+                          }}
+                          className="w-full px-4 py-2 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-xl text-sm font-semibold hover:bg-orange-500/30 transition-all"
+                        >
+                          📋 Report Issue
+                        </motion.button>
+                      </div>
                     </motion.div>
                   ))}
                 </div>
@@ -579,7 +766,19 @@ const CustomerDashboard = () => {
             </motion.div>
           )}
 
-          {/* Available Vehicles View */}
+          {/* ✅ NEW: Payment History View */}
+          {viewMode === "payments" && (
+            <motion.div
+              key="payments"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <PaymentHistory customerId={userId} />
+            </motion.div>
+          )}
+
+          {/* Available Vehicles View - VERIFIED CLOSING */}
           {viewMode === "available" && (
             <motion.div
               key="available"
@@ -618,11 +817,12 @@ const CustomerDashboard = () => {
                           Available
                         </span>
                       </div>
+
                       <div className="space-y-2 mb-4">
                         <div className="flex justify-between text-sm">
                           <span className="text-white/60">Type:</span>
                           <span className="text-white font-semibold">
-                            {vehicle.type || "Sedan"}
+                            {vehicle.type?.name || "Sedan"}
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">
@@ -638,6 +838,7 @@ const CustomerDashboard = () => {
                           </span>
                         </div>
                       </div>
+
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
@@ -662,68 +863,19 @@ const CustomerDashboard = () => {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
-              {/* Trips Map */}
-              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                <h2 className="text-2xl font-bold text-white mb-4">
-                  Trip Routes
-                </h2>
-                <FleetMap
-                  vehicles={[]}
-                  routes={bookedRoutes}
-                  height="400px"
-                  showControls={true}
-                  showLegend={true}
-                  defaultStyle="dark"
-                />
-              </motion.div>
-
-              {/* Trips List */}
-              <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                <h2 className="text-2xl font-bold text-white mb-6">
-                  Your Trips
-                </h2>
-                {bookedRoutes.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🚀</div>
-                    <p className="text-white/60">No upcoming trips</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {bookedRoutes.map((route) => (
-                      <div
-                        key={route.id}
-                        className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-xl p-4"
-                      >
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <p className="text-white font-semibold">
-                              Vehicle: {route.vehicleId}
-                            </p>
-                            <p className="text-white/60 text-sm">
-                              Driver: {route.driverId}
-                            </p>
-                          </div>
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                              route.status === "active"
-                                ? "bg-green-500/20 text-green-400"
-                                : "bg-gray-500/20 text-gray-400"
-                            }`}
-                          >
-                            {route.status}
-                          </span>
-                        </div>
-                        <p className="text-white/80 text-sm">
-                          ETA:{" "}
-                          <span className="font-bold">
-                            {route.eta.toFixed(1)} min
-                          </span>
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
+              {confirmedBookings.length === 0 ? (
+                <div className="text-center py-12 backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl">
+                  <div className="text-6xl mb-4">🚀</div>
+                  <p className="text-white/60 text-lg">No active trips</p>
+                  <p className="text-white/40 text-sm mt-2">
+                    Book a vehicle to start tracking
+                  </p>
+                </div>
+              ) : (
+                confirmedBookings.map((booking) => (
+                  <LiveTripTracker key={booking.id} booking={booking} />
+                ))
+              )}
             </motion.div>
           )}
 
@@ -995,6 +1147,51 @@ const CustomerDashboard = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* NEW: Payment Modal - CRITICAL: ADD THIS */}
+      <AnimatePresence>
+        {showPaymentModal && selectedBookingForPayment && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowPaymentModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-md w-full"
+            >
+              <RazorpayCheckout
+                booking={selectedBookingForPayment}
+                onSuccess={handlePaymentSuccess}
+                onClose={() => {
+                  setShowPaymentModal(false);
+                  setSelectedBookingForPayment(null);
+                }}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <ReportIssueModal
+        show={showReportIssue}
+        onClose={() => {
+          setShowReportIssue(false);
+          setSelectedBooking(null);
+        }}
+        booking={selectedBooking}
+        onIssueReported={() => {
+          // Refresh bookings after issue reported
+          loadCustomerData();
+          setShowReportIssue(false);
+          setSelectedBooking(null);
+        }}
+      />
     </div>
   );
 };

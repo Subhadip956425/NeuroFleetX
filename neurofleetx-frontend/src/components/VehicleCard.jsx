@@ -1,7 +1,17 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-export default function VehicleCard({ vehicle, onEdit, onDelete }) {
+export default function VehicleCard({
+  vehicle,
+  onEdit,
+  onDelete,
+  onAssign, // ✅ NEW
+  onUnassign, // ✅ NEW
+}) {
+  console.log(
+    `🚗 VehicleCard rendering - ID: ${vehicle.id}, Driver: ${vehicle.assignedDriverId}`
+  );
+
   const [isHovered, setIsHovered] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -103,6 +113,9 @@ export default function VehicleCard({ vehicle, onEdit, onDelete }) {
     }
   };
 
+  // ✅ Check if vehicle has assigned driver
+  const hasDriver = vehicle.assignedDriverId || vehicle.assignedDriverName;
+
   return (
     <motion.div
       layout
@@ -160,7 +173,7 @@ export default function VehicleCard({ vehicle, onEdit, onDelete }) {
                 {vehicle.name}
               </motion.h3>
 
-              {/* Vehicle Type Badge - NEW PROMINENT DISPLAY */}
+              {/* Vehicle Type Badge */}
               <motion.div
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -213,6 +226,27 @@ export default function VehicleCard({ vehicle, onEdit, onDelete }) {
             <span className="text-xs text-white/60">{statusConfig.icon}</span>
           </motion.div>
         </div>
+
+        {/* ✅ NEW: Driver Assignment Info */}
+        {/* Driver Assignment Info */}
+        {vehicle.assignedDriverId && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.45 }}
+            className="relative z-10 mb-4 p-3 rounded-xl backdrop-blur-sm border border-purple-500/30 bg-purple-500/10"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-purple-400 flex items-center gap-2">
+                <span className="text-base">👤</span>
+                Driver Assigned
+              </span>
+              <span className="text-xs font-bold text-purple-300">
+                Driver #{vehicle.assignedDriverId}
+              </span>
+            </div>
+          </motion.div>
+        )}
 
         {/* Metrics */}
         <div className="relative z-10 space-y-4 mb-5">
@@ -327,14 +361,55 @@ export default function VehicleCard({ vehicle, onEdit, onDelete }) {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8 }}
-          className="relative z-10 flex gap-3"
+          className="relative z-10 flex gap-3 flex-wrap"
         >
+          {/* ✅ NEW: Assign/Unassign Button */}
+          {hasDriver ? (
+            <motion.button
+              whileHover={{ scale: 1.05, y: -2 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => onUnassign(vehicle)}
+              className="flex-1 min-w-[100px] relative px-4 py-3 rounded-xl overflow-hidden group/btn"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-red-500/20 to-pink-500/20 border border-red-500/30 rounded-xl" />
+              <motion.div
+                className="absolute inset-0 bg-gradient-to-r from-red-500 to-pink-500 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-300"
+                initial={{ x: "-100%" }}
+                whileHover={{ x: 0 }}
+                transition={{ duration: 0.3 }}
+              />
+              <span className="relative z-10 text-red-400 group-hover/btn:text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors duration-300">
+                <span>🚫</span>
+                <span>Unassign</span>
+              </span>
+            </motion.button>
+          ) : (
+            <motion.button
+              whileHover={{ scale: 1.05, y: -2 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => onAssign(vehicle)}
+              className="flex-1 min-w-[100px] relative px-4 py-3 rounded-xl overflow-hidden group/btn"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 rounded-xl" />
+              <motion.div
+                className="absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-300"
+                initial={{ x: "-100%" }}
+                whileHover={{ x: 0 }}
+                transition={{ duration: 0.3 }}
+              />
+              <span className="relative z-10 text-purple-400 group-hover/btn:text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors duration-300">
+                <span>👤</span>
+                <span>Assign</span>
+              </span>
+            </motion.button>
+          )}
+
           {/* Edit Button */}
           <motion.button
             whileHover={{ scale: 1.05, y: -2 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => onEdit(vehicle)}
-            className="flex-1 relative px-4 py-3 rounded-xl overflow-hidden group/btn"
+            className="flex-1 min-w-[100px] relative px-4 py-3 rounded-xl overflow-hidden group/btn"
           >
             <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/30 rounded-xl" />
             <motion.div
@@ -354,7 +429,7 @@ export default function VehicleCard({ vehicle, onEdit, onDelete }) {
             whileHover={{ scale: 1.05, y: -2 }}
             whileTap={{ scale: 0.95 }}
             onClick={handleDelete}
-            className="flex-1 relative px-4 py-3 rounded-xl overflow-hidden group/btn"
+            className="flex-1 min-w-[100px] relative px-4 py-3 rounded-xl overflow-hidden group/btn"
           >
             <div
               className={`absolute inset-0 ${

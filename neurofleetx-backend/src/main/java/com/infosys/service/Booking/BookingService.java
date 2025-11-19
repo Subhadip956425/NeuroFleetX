@@ -3,6 +3,7 @@ package com.infosys.service.Booking;
 import com.infosys.dto.CreateBookingRequest;
 import com.infosys.model.Booking.Booking;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -35,4 +36,8 @@ public interface BookingService {
     Booking confirmBooking(Long bookingId, Long managerId); // ✅ KEEP THIS
     List<Booking> getBookingsForVehicle(Long vehicleId); // ✅ KEEP THIS
     List<Booking> getBookingsForDriver(Long driverId); // ✅ KEEP THIS
+
+    List<Map<String, Object>> getRecommendedSlots(Long vehicleId, LocalDate date);
+    Map<LocalDate, List<Map<String, Object>>> getBookingCalendar(Long vehicleId, LocalDate startDate, LocalDate endDate);
+    void createRouteFromBooking(Booking booking, Long driverId);
 }

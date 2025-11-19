@@ -592,6 +592,23 @@ export default function Login() {
             </AnimatePresence>
           </motion.div>
 
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 2.2 }}
+            className="text-right"
+          >
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.05, x: 5 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => navigate("/forgot-password")}
+              className="text-sm text-white/70 hover:text-white transition-colors font-semibold"
+            >
+              Forgot Password? 🔑
+            </motion.button>
+          </motion.div>
+
           {/* Enhanced submit button */}
           <motion.button
             initial={{ y: 30, opacity: 0 }}

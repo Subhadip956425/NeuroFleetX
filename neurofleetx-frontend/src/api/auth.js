@@ -10,6 +10,14 @@ const authApi = {
   login: (email, password) =>
     axiosInstance.post("/auth/login", { email, password }),
   getProfile: () => axiosInstance.get("/auth/me"),
+
+  // Password Reset Endpoints
+  forgotPassword: (email) =>
+    axiosInstance.post("/auth/forgot-password", { email }),
+  verifyResetToken: (token) =>
+    axiosInstance.get(`/auth/verify-reset-token?token=${token}`),
+  resetPassword: (token, newPassword) =>
+    axiosInstance.post("/auth/reset-password", { token, newPassword }),
 };
 
 export default authApi;

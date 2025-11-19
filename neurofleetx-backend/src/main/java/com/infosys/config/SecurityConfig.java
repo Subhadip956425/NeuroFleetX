@@ -73,6 +73,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/manager/**").hasAnyRole("MANAGER", "ADMIN")
                         .requestMatchers("/api/driver/**").hasRole("DRIVER")
                         .requestMatchers("/api/customer/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/**").hasAnyRole("MANAGER", "ADMIN", "DRIVER", "CUSTOMER")
 
                         // All other requests require authentication
                         .anyRequest().authenticated()

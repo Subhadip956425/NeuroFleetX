@@ -2,11 +2,14 @@ package com.infosys.controller;
 
 import com.infosys.model.Booking.Booking;
 import com.infosys.model.Health_Analytics.MaintenanceTicket;
+import com.infosys.model.User;
 import com.infosys.model.Vehicle;
 import com.infosys.service.Booking.BookingService;
 import com.infosys.service.Health_Analytics.MaintenanceService;
 import com.infosys.service.UserService;
 import com.infosys.service.VehicleService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,6 +22,8 @@ import java.util.Map;
 @RequestMapping("/api/driver")
 @PreAuthorize("hasRole('DRIVER')")
 public class DriverController {
+
+    private static final Logger logger = LoggerFactory.getLogger(DriverController.class);
 
     @Autowired
     private BookingService bookingService;
@@ -76,16 +81,64 @@ public class DriverController {
     }
 
     // ✅ New endpoint: get all maintenance tickets for the driver's assigned vehicle
+    // ✅ Get all maintenance tickets for driver's vehicle
     @GetMapping("/my-tickets")
-    public ResponseEntity<List<MaintenanceTicket>> getMyTickets() {
-        var driver = userService.getCurrentUser();
-        var vehicle = vehicleService.getVehicleByDriverId(driver.getId());
-        if (vehicle == null) {
-            return ResponseEntity.notFound().build();
-        }
+    public ResponseEntity<?> getMyTickets() {
+        try {
+            logger.info("📋 Fetching driver's maintenance tickets...");
+            User driver = userService.getCurrentUser();
 
-        var tickets = maintenanceService.getTicketsForVehicle(vehicle.getId());
-        return ResponseEntity.ok(tickets);
+            logger.info("🔍 Getting vehicle for driver: {}", driver.getId());
+            Vehicle vehicle = vehicleService.getVehicleByDriverId(driver.getId());
+
+            if (vehicle == null) {
+                logger.warn("⚠️ No vehicle assigned to driver");
+                return ResponseEntity.ok(List.of()); // Return empty list
+            }
+
+            logger.info("📋 Fetching tickets for vehicle: {}", vehicle.getId());
+            List<MaintenanceTicket> tickets = maintenanceService.getTicketsForVehicle(vehicle.getId());
+
+            logger.info("✅ Retrieved {} maintenance tickets", tickets.size());
+            return ResponseEntity.ok(tickets);
+        } catch (Exception e) {
+            logger.error("❌ Error fetching my tickets: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // ✅ NEW: Report maintenance issue for driver's vehicle
+    @PostMapping("/report-issue")
+    public ResponseEntity<?> reportMaintenance(@RequestBody Map<String, Object> payload) {
+        try {
+            logger.info("🔧 Driver reporting maintenance issue...");
+            User driver = userService.getCurrentUser();
+
+            Vehicle vehicle = vehicleService.getVehicleByDriverId(driver.getId());
+            if (vehicle == null) {
+                logger.warn("⚠️ No vehicle assigned to driver");
+                return ResponseEntity.badRequest().body(Map.of("error", "No vehicle assigned"));
+            }
+
+            String description = (String) payload.get("description");
+            String severity = (String) payload.getOrDefault("severity", "MEDIUM");
+
+            logger.info("🔧 Creating ticket for vehicle {} - Severity: {} - Description: {}",
+                    vehicle.getId(), severity, description);
+
+            MaintenanceTicket ticket = maintenanceService.createTicket(
+                    vehicle.getId(),
+                    driver.getId(),
+                    description,
+                    severity
+            );
+
+            logger.info("✅ Maintenance ticket created: {}", ticket.getId());
+            return ResponseEntity.ok(ticket);
+        } catch (Exception e) {
+            logger.error("❌ Error reporting maintenance: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @GetMapping("/assigned-bookings")
