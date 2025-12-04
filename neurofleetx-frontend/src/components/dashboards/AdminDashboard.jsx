@@ -84,31 +84,56 @@ const AdminDashboard = () => {
     }
   };
 
+  // ✅ IMPROVED: Load maintenance data with better error handling and data flow
   const loadMaintenanceData = async () => {
     try {
+      console.log("📡 Loading maintenance data...");
+
       const [openTicketsRes, resolvedTicketsRes] = await Promise.all([
         maintenanceApi.getOpenTickets(),
         maintenanceApi.getResolvedTickets(),
       ]);
 
-      const openTicketsData = openTicketsRes.data || [];
-      const resolvedTicketsData = resolvedTicketsRes.data || [];
+      // ✅ Better data extraction
+      const openTicketsData = Array.isArray(openTicketsRes.data)
+        ? openTicketsRes.data
+        : Array.isArray(openTicketsRes)
+        ? openTicketsRes
+        : [];
+
+      const resolvedTicketsData = Array.isArray(resolvedTicketsRes.data)
+        ? resolvedTicketsRes.data
+        : Array.isArray(resolvedTicketsRes)
+        ? resolvedTicketsRes
+        : [];
+
+      console.log("✅ Open tickets loaded:", openTicketsData.length);
+      console.log("✅ Resolved tickets loaded:", resolvedTicketsData.length);
 
       setTickets(openTicketsData);
       setResolvedTickets(resolvedTicketsData);
 
+      // ✅ CRITICAL: Calculate stats from actual data
       const stats = {
-        critical: openTicketsData.filter((t) => t.severity === "CRITICAL")
-          .length,
-        high: openTicketsData.filter((t) => t.severity === "HIGH").length,
-        medium: openTicketsData.filter((t) => t.severity === "MEDIUM").length,
+        critical: openTicketsData.filter(
+          (t) => t.severity === "CRITICAL" || t.severity === "HIGH"
+        ).length,
+        high: openTicketsData.filter(
+          (t) => t.severity === "HIGH" || t.severity === "MEDIUM"
+        ).length,
+        medium: openTicketsData.filter(
+          (t) => t.severity === "MEDIUM" || t.severity === "LOW"
+        ).length,
         total: openTicketsData.length,
         resolved: resolvedTicketsData.length,
       };
 
+      console.log("📊 Calculated stats:", stats);
       setAlertStats(stats);
     } catch (error) {
-      console.error("Error loading maintenance data:", error);
+      console.error("❌ Error loading maintenance data:", error);
+
+      // ✅ Set empty state on error
       setAlertStats({
         critical: 0,
         high: 0,
@@ -333,7 +358,6 @@ const AdminDashboard = () => {
               },
               { id: "grid", mode: "grid", icon: "▦", label: "Grid" },
               { id: "map", mode: "map", icon: "🗺️", label: "Map" },
-              { id: "routes", mode: "routes", icon: "🛣️", label: "Routes" },
               {
                 id: "bookings",
                 mode: "bookings",

@@ -293,27 +293,27 @@ export default function RouteMap({
       </MapContainer>
 
       {/* ✅ Enhanced Legend */}
-      <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-3 z-10 text-sm shadow-lg">
-        <p className="font-bold mb-2">Legend</p>
-        <div className="space-y-1">
+      <div className="absolute bottom-4 left-4 bg-slate-900/95 backdrop-blur-md rounded-xl p-4 z-10 text-sm shadow-xl border border-white/20">
+        <p className="font-bold mb-3 text-white text-base">Legend</p>
+        <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-            <span>Assigned</span>
+            <div className="w-4 h-4 bg-green-500 rounded-full shadow-lg"></div>
+            <span className="text-white font-medium">Assigned</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-amber-500 rounded-full"></div>
-            <span>In Progress</span>
+            <div className="w-4 h-4 bg-amber-500 rounded-full shadow-lg"></div>
+            <span className="text-white font-medium">In Progress</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
-            <span>Completed</span>
+            <div className="w-4 h-4 bg-gray-500 rounded-full shadow-lg"></div>
+            <span className="text-white font-medium">Completed</span>
           </div>
         </div>
 
-        {/* ✅ New: Show AI model info */}
+        {/* AI model info */}
         {showETA && (
-          <div className="mt-3 pt-3 border-t border-gray-300">
-            <p className="text-xs text-gray-600">
+          <div className="mt-3 pt-3 border-t border-white/20">
+            <p className="text-xs text-cyan-300 font-semibold">
               ⏱️ ETA powered by AI/ML model
             </p>
           </div>

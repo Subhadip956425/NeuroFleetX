@@ -6,10 +6,9 @@ import com.infosys.model.User;
 import com.infosys.model.Vehicle;
 import com.infosys.model.VehicleStatus;
 import com.infosys.model.VehicleType;
-import com.infosys.repository.UserRepository;
-import com.infosys.repository.VehicleRepository;
-import com.infosys.repository.VehicleStatusRepository;
-import com.infosys.repository.VehicleTypeRepository;
+import com.infosys.repository.*;
+import com.infosys.repository.AI.RouteRepository;
+import com.infosys.repository.Health_Analytics.MaintenanceTicketRepository;
 import com.infosys.service.VehicleService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -19,8 +18,13 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Service
 public class VehicleServiceImpl implements VehicleService {
+
+    private static final Logger logger = LoggerFactory.getLogger(VehicleServiceImpl.class);
 
     @Autowired
     private VehicleRepository vehicleRepo;
@@ -30,6 +34,12 @@ public class VehicleServiceImpl implements VehicleService {
     private VehicleStatusRepository statusRepo;
     @Autowired
     private UserRepository userRepo;
+    @Autowired
+    private MaintenanceTicketRepository maintenanceTicketRepo;
+    @Autowired
+    private BookingRepository bookingRepo;
+    @Autowired
+    private RouteRepository routeRepo;
 
     @Override
     public VehicleResponse createVehicle(VehicleRequest req) {
@@ -91,9 +101,49 @@ public class VehicleServiceImpl implements VehicleService {
         return mapToResponse(vehicle);
     }
 
+
     @Override
+    @Transactional
     public void deleteVehicle(Long id) {
-        vehicleRepo.deleteById(id);
+        logger.info("🗑️ Attempting to delete vehicle with ID: {}", id);
+
+        // Check if vehicle exists
+        Vehicle vehicle = vehicleRepo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Vehicle not found with ID: " + id));
+
+        try {
+            // Step 1: Delete maintenance tickets
+            logger.info("   🔧 Deleting maintenance tickets for vehicle {}", id);
+            int ticketsDeleted = maintenanceTicketRepo.deleteByVehicleId(id);
+            logger.info("   ✅ Deleted {} maintenance tickets", ticketsDeleted);
+
+            // Step 2: Delete bookings
+            logger.info("   📅 Deleting bookings for vehicle {}", id);
+            int bookingsDeleted = bookingRepo.deleteByVehicleId(id);
+            logger.info("   ✅ Deleted {} bookings", bookingsDeleted);
+
+            // Step 3: Delete routes
+            logger.info("   🗺️ Deleting routes for vehicle {}", id);
+            int routesDeleted = routeRepo.deleteByVehicleId(id);
+            logger.info("   ✅ Deleted {} routes", routesDeleted);
+
+            // Step 4: Clear assigned driver
+            if (vehicle.getAssignedDriver() != null) {
+                logger.info("   👤 Clearing assigned driver: {}", vehicle.getAssignedDriver().getId());
+                vehicle.setAssignedDriver(null);
+                vehicleRepo.save(vehicle);
+            }
+
+            // Step 5: Finally delete the vehicle
+            logger.info("   🚗 Deleting vehicle {}", id);
+            vehicleRepo.deleteById(id);
+
+            logger.info("✅ Successfully deleted vehicle {} and all related data", id);
+
+        } catch (Exception e) {
+            logger.error("❌ Error deleting vehicle {}: {}", id, e.getMessage(), e);
+            throw new RuntimeException("Failed to delete vehicle: " + e.getMessage());
+        }
     }
 
     @Override

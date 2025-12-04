@@ -427,14 +427,14 @@ const CustomerDashboard = () => {
             </div>
 
             <div className="flex gap-3 flex-wrap items-center">
-              <motion.button
+              {/* <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => navigate("/customer/book")}
                 className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all"
               >
                 🚗 Book a Vehicle
-              </motion.button>
+              </motion.button> */}
 
               {/* View Mode Toggle */}
               <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-1 rounded-xl border border-white/20">

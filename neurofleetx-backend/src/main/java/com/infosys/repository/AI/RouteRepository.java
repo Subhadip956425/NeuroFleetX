@@ -5,6 +5,10 @@ import com.infosys.model.AI.RouteStatus;
 import com.infosys.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -28,4 +32,9 @@ public interface RouteRepository extends JpaRepository<Route, Long> {
     List<Route> findByBookingId(Long bookingId);
 
     List<Route> findByAssignedDriverId(Long driverId);
+
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM Route r WHERE r.vehicle.id = :vehicleId")
+    int deleteByVehicleId(@Param("vehicleId") Long vehicleId);
 }
