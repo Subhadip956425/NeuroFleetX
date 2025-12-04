@@ -48,6 +48,7 @@ const ManagerDashboard = () => {
   const [selectedDriver, setSelectedDriver] = useState("");
   const [maintenanceTickets, setMaintenanceTickets] = useState([]);
   const [criticalVehicles, setCriticalVehicles] = useState([]);
+  const [predictions, setPredictions] = useState([]);
 
   const canvasRef = useRef(null);
   const mouseX = useMotionValue(0);
@@ -147,6 +148,23 @@ const ManagerDashboard = () => {
     window.addEventListener("mousemove", handleMouseMove);
     return () => window.removeEventListener("mousemove", handleMouseMove);
   }, [mouseX, mouseY]);
+
+  useEffect(() => {
+    const loadPredictions = async () => {
+      try {
+        console.log("📊 Loading AI predictions...");
+        const data = await maintenanceApi.getAllPredictions();
+        setPredictions(data);
+        console.log("✅ Predictions loaded:", data);
+      } catch (err) {
+        console.error("❌ Error loading predictions:", err);
+      }
+    };
+
+    if (viewMode === "maintenance") {
+      loadPredictions();
+    }
+  }, [viewMode]);
 
   // Health Analytics
   useEffect(() => {
@@ -276,7 +294,7 @@ const ManagerDashboard = () => {
 
     try {
       console.log("🗑️ Deleting vehicle:", vehicleId);
-      await axiosInstance.delete(`/manager/vehicles/${vehicleId}`);
+      await axiosInstance.delete(`/vehicles/${vehicleId}`);
 
       // Update state
       const updatedVehicles = state.vehicles.filter((v) => v.id !== vehicleId);
@@ -570,7 +588,7 @@ const ManagerDashboard = () => {
 
             <div className="flex gap-3 flex-wrap items-center">
               {/* Create Trip Button */}
-              <motion.button
+              {/* <motion.button
                 whileHover={{ scale: 1.05, y: -2 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleCreateTrip}
@@ -578,7 +596,7 @@ const ManagerDashboard = () => {
               >
                 <span className="mr-2">🚀</span>
                 Create Trip
-              </motion.button>
+              </motion.button> */}
 
               <motion.button
                 whileHover={{ scale: 1.05, y: -2 }}
@@ -596,9 +614,7 @@ const ManagerDashboard = () => {
                   { mode: "analytics", icon: "📊", label: "Analytics" },
                   { mode: "grid", icon: "▦", label: "Grid" },
                   { mode: "map", icon: "🗺️", label: "Map" },
-                  { mode: "trips", icon: "🚀", label: "Trips" },
                   { mode: "bookings", icon: "📋", label: "Bookings" },
-                  { mode: "optimizer", icon: "🎯", label: "Route Optimizer" },
                   { mode: "maintenance", icon: "🔧", label: "Maintenance" },
                   {
                     mode: "ai-maintenance",
@@ -1026,6 +1042,7 @@ const ManagerDashboard = () => {
             </motion.div>
           )}
 
+          {/* viewMode === "maintenance" */}
           {viewMode === "maintenance" && (
             <motion.div
               key="maintenance"
@@ -1034,36 +1051,48 @@ const ManagerDashboard = () => {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
-              {/* Maintenance KPI Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Combined KPI Cards - AI Predictions + Manual Tickets */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 {[
                   {
-                    title: "Total Vehicles",
-                    value: state.vehicles.length,
-                    icon: "🚗",
-                    bg: "from-blue-500/20 to-cyan-500/10",
+                    title: "AI Critical",
+                    value: predictions.filter((p) => p.status === "Critical")
+                      .length,
+                    icon: "🤖",
+                    bg: "from-red-500/20 to-pink-500/10",
+                    description: "AI Detected",
+                  },
+                  {
+                    title: "AI Due Soon",
+                    value: predictions.filter((p) => p.status === "Due").length,
+                    icon: "⚠️",
+                    bg: "from-orange-500/20 to-yellow-500/10",
+                    description: "Needs Service",
+                  },
+                  {
+                    title: "AI Healthy",
+                    value: predictions.filter((p) => p.status === "Healthy")
+                      .length,
+                    icon: "✅",
+                    bg: "from-green-500/20 to-emerald-500/10",
+                    description: "Good Condition",
                   },
                   {
                     title: "Open Tickets",
                     value: maintenanceTickets.filter((t) => t.status === "OPEN")
                       .length,
                     icon: "🎫",
-                    bg: "from-yellow-500/20 to-orange-500/10",
+                    bg: "from-blue-500/20 to-cyan-500/10",
+                    description: "Manual Reports",
                   },
                   {
-                    title: "Critical",
+                    title: "High Priority",
                     value: maintenanceTickets.filter(
                       (t) => t.severity === "HIGH" && t.status === "OPEN"
                     ).length,
-                    icon: "⚠️",
-                    bg: "from-red-500/20 to-pink-500/10",
-                  },
-                  {
-                    title: "Healthy",
-                    value: state.vehicles.filter((v) => (v.tireWear || 0) < 50)
-                      .length,
-                    icon: "✅",
-                    bg: "from-green-500/20 to-emerald-500/10",
+                    icon: "🚨",
+                    bg: "from-purple-500/20 to-pink-500/10",
+                    description: "Urgent Issues",
                   },
                 ].map((stat, index) => (
                   <motion.div
@@ -1074,7 +1103,7 @@ const ManagerDashboard = () => {
                     whileHover={{ y: -5, scale: 1.02 }}
                     className="relative group"
                   >
-                    <motion.div
+                    <div
                       className={`absolute inset-0 bg-gradient-to-br ${stat.bg} rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`}
                     />
                     <div className="relative backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 hover:border-white/20 transition-all">
@@ -1090,70 +1119,262 @@ const ManagerDashboard = () => {
                       <p className="text-white/60 text-sm font-semibold">
                         {stat.title}
                       </p>
+                      <p className="text-white/40 text-xs mt-1">
+                        {stat.description}
+                      </p>
                     </div>
                   </motion.div>
                 ))}
               </div>
 
-              {/* Charts & Alerts Section */}
+              {/* AI Predictions Table */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6"
+              >
+                <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                  🤖 AI Maintenance Predictions
+                  <span className="text-sm font-normal text-white/60">
+                    ({predictions.length} vehicles analyzed)
+                  </span>
+                </h2>
+
+                {predictions.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">🤖</div>
+                    <p className="text-white/60">No AI predictions available</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-white/10">
+                          <th className="px-4 py-3 text-left text-white/80 text-sm font-semibold">
+                            Vehicle
+                          </th>
+                          <th className="px-4 py-3 text-left text-white/80 text-sm font-semibold">
+                            Status
+                          </th>
+                          <th className="px-4 py-3 text-left text-white/80 text-sm font-semibold">
+                            Health Score
+                          </th>
+                          <th className="px-4 py-3 text-left text-white/80 text-sm font-semibold">
+                            Next Service
+                          </th>
+                          <th className="px-4 py-3 text-left text-white/80 text-sm font-semibold">
+                            Days Remaining
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {predictions
+                          .sort((a, b) => {
+                            // Sort: Critical → Due → Healthy
+                            const order = { Critical: 3, Due: 2, Healthy: 1 };
+                            return (
+                              (order[b.status] || 0) - (order[a.status] || 0)
+                            );
+                          })
+                          .map((pred, index) => (
+                            <motion.tr
+                              key={pred.vehicleId}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: index * 0.02 }}
+                              className="border-b border-white/5 hover:bg-white/5 transition-all"
+                            >
+                              <td className="px-4 py-3 text-white font-semibold">
+                                Vehicle #{pred.vehicleId}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span
+                                  className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                                    pred.status === "Critical"
+                                      ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                      : pred.status === "Due"
+                                      ? "bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                                      : "bg-green-500/20 text-green-400 border border-green-500/30"
+                                  }`}
+                                >
+                                  {pred.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden max-w-[100px]">
+                                    <div
+                                      className={`h-full ${
+                                        pred.healthScore >= 80
+                                          ? "bg-green-500"
+                                          : pred.healthScore >= 60
+                                          ? "bg-yellow-500"
+                                          : "bg-red-500"
+                                      }`}
+                                      style={{ width: `${pred.healthScore}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-white text-sm font-bold w-12">
+                                    {pred.healthScore}%
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-white/80 text-sm">
+                                {pred.nextMaintenanceDate
+                                  ? new Date(
+                                      pred.nextMaintenanceDate
+                                    ).toLocaleDateString()
+                                  : "N/A"}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span
+                                  className={`font-bold ${
+                                    pred.daysUntilMaintenance <= 3
+                                      ? "text-red-400"
+                                      : pred.daysUntilMaintenance <= 14
+                                      ? "text-orange-400"
+                                      : "text-green-400"
+                                  }`}
+                                >
+                                  {pred.daysUntilMaintenance} days
+                                </span>
+                              </td>
+                            </motion.tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </motion.div>
+
+              {/* Charts & Manual Tickets Section */}
+              {/* Charts & Manual Tickets Section */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Maintenance Charts */}
+                {/* Maintenance Charts - Combined AI + Manual */}
                 <div className="lg:col-span-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
                   <h2 className="text-2xl font-bold text-white mb-6">
-                    Maintenance Analytics
+                    📊 Combined Maintenance Analytics
+                    <span className="text-sm font-normal text-white/60 ml-2">
+                      (AI Predictions + Manual Reports)
+                    </span>
                   </h2>
+
+                  {/* Show breakdown */}
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                      <p className="text-red-400 text-xs font-semibold mb-1">
+                        Critical
+                      </p>
+                      <p className="text-white text-lg font-bold">
+                        {
+                          predictions.filter((p) => p.status === "Critical")
+                            .length
+                        }{" "}
+                        AI +{" "}
+                        {
+                          maintenanceTickets.filter(
+                            (t) => t.severity === "HIGH" && t.status === "OPEN"
+                          ).length
+                        }{" "}
+                        Manual
+                      </p>
+                    </div>
+                    <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3">
+                      <p className="text-orange-400 text-xs font-semibold mb-1">
+                        Warning
+                      </p>
+                      <p className="text-white text-lg font-bold">
+                        {predictions.filter((p) => p.status === "Due").length}{" "}
+                        AI +{" "}
+                        {
+                          maintenanceTickets.filter(
+                            (t) =>
+                              t.severity === "MEDIUM" && t.status === "OPEN"
+                          ).length
+                        }{" "}
+                        Manual
+                      </p>
+                    </div>
+                    <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3">
+                      <p className="text-green-400 text-xs font-semibold mb-1">
+                        Good
+                      </p>
+                      <p className="text-white text-lg font-bold">
+                        {
+                          predictions.filter((p) => p.status === "Healthy")
+                            .length
+                        }{" "}
+                        AI +{" "}
+                        {
+                          maintenanceTickets.filter(
+                            (t) => t.severity === "LOW" && t.status === "OPEN"
+                          ).length
+                        }{" "}
+                        Manual
+                      </p>
+                    </div>
+                  </div>
+
                   <MaintenanceCharts
-                    vehicles={state.vehicles}
-                    tickets={maintenanceTickets}
+                    stats={{
+                      critical:
+                        predictions.filter((p) => p.status === "Critical")
+                          .length +
+                        maintenanceTickets.filter(
+                          (t) => t.severity === "HIGH" && t.status === "OPEN"
+                        ).length,
+                      high:
+                        predictions.filter((p) => p.status === "Due").length +
+                        maintenanceTickets.filter(
+                          (t) => t.severity === "MEDIUM" && t.status === "OPEN"
+                        ).length,
+                      medium:
+                        predictions.filter((p) => p.status === "Healthy")
+                          .length +
+                        maintenanceTickets.filter(
+                          (t) => t.severity === "LOW" && t.status === "OPEN"
+                        ).length,
+                      total:
+                        predictions.length +
+                        maintenanceTickets.filter((t) => t.status === "OPEN")
+                          .length,
+                    }}
                   />
                 </div>
 
-                {/* Alerts Table */}
+                {/* Manual Maintenance Tickets List */}
+                {/* Manual Maintenance Tickets List */}
                 <div className="lg:col-span-1 backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                  <h2 className="text-2xl font-bold text-white mb-6">
-                    Active Alerts
+                  <h2 className="text-2xl font-bold text-white mb-4 flex items-center justify-between">
+                    <span>🎫 Manual Reports</span>
+                    {/* ✅ CORRECT - Only count manual tickets (exclude AUTO) */}
+                    <span className="text-sm font-normal text-white/60">
+                      (
+                      {
+                        maintenanceTickets.filter(
+                          (t) =>
+                            t.status === "OPEN" &&
+                            !t.description?.startsWith("AUTO:")
+                        ).length
+                      }
+                      )
+                    </span>
                   </h2>
+
                   <AlertsTable
-                    tickets={maintenanceTickets}
+                    tickets={maintenanceTickets.filter(
+                      (t) => t.status === "OPEN"
+                    )}
                     onTicketUpdated={(updatedTicket) => {
                       setMaintenanceTickets((prev) =>
-                        updatedTicket.status === "RESOLVED"
-                          ? prev.filter((t) => t.id !== updatedTicket.id) // remove from list
-                          : prev.map((t) =>
-                              t.id === updatedTicket.id ? updatedTicket : t
-                            )
+                        prev.filter((t) => t.id !== updatedTicket.id)
                       );
                     }}
                   />
                 </div>
               </div>
 
-              {/* Vehicle Health Cards */}
-              <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
-                <h2 className="text-2xl font-bold text-white mb-6">
-                  Vehicle Health Status
-                </h2>
-
-                {state.vehicles.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🔧</div>
-                    <p className="text-white/60">No vehicles to monitor</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {state.vehicles.map((vehicle, index) => (
-                      <motion.div
-                        key={vehicle.id}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: index * 0.05 }}
-                      >
-                        <VehicleHealthCard vehicle={vehicle} />
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {/* ✅ REMOVED: Vehicle Health Cards section */}
             </motion.div>
           )}
 

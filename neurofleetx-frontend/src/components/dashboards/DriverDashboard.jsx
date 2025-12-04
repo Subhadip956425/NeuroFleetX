@@ -825,19 +825,19 @@ const DriverDashboard = () => {
                   <div className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-xl p-4">
                     <p className="text-white/60 text-sm mb-1">Speed</p>
                     <p className="text-2xl font-bold text-white">
-                      {assignedVehicle.speed?.toFixed(2)} km/h
+                      {assignedVehicle.speed?.toFixed(1) || "0.0"} km/h
                     </p>
                   </div>
                   <div className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-xl p-4">
                     <p className="text-white/60 text-sm mb-1">Battery</p>
                     <p className="text-2xl font-bold text-white">
-                      {assignedVehicle.batteryLevel}%
+                      {Math.round(assignedVehicle.batteryLevel || 0)}%
                     </p>
                   </div>
                   <div className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-xl p-4">
                     <p className="text-white/60 text-sm mb-1">Fuel</p>
                     <p className="text-2xl font-bold text-white">
-                      {assignedVehicle.fuelLevel}%
+                      {Math.round(assignedVehicle.fuelLevel || 0)}%
                     </p>
                   </div>
                   <div className="backdrop-blur-sm bg-white/5 border border-white/10 rounded-xl p-4">
@@ -1319,6 +1319,7 @@ const DriverDashboard = () => {
             </motion.div>
           )}
 
+          {/* ✅ SIMPLIFIED AI HEALTH PREDICTION BUTTON */}
           {viewMode === "health" && assignedVehicle && (
             <motion.div
               key="health"
@@ -1327,14 +1328,13 @@ const DriverDashboard = () => {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
-              {/* ✅ AI Health Status Card */}
-              {vehiclePrediction?.data && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
+              {/* AI Health Prediction Button */}
+              {vehiclePrediction?.data ? (
+                <motion.button
                   whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={() => setShowPredictionModal(true)}
-                  className={`backdrop-blur-xl border rounded-3xl p-8 cursor-pointer transition-all ${
+                  className={`w-full backdrop-blur-xl border rounded-3xl p-8 text-left transition-all ${
                     vehiclePrediction.data.status === "Critical"
                       ? "bg-red-500/10 border-red-500/30 hover:border-red-500/50"
                       : vehiclePrediction.data.status === "Due"
@@ -1342,11 +1342,27 @@ const DriverDashboard = () => {
                       : "bg-green-500/10 border-green-500/30 hover:border-green-500/50"
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-3xl font-bold text-white flex items-center gap-3">
-                      🤖 AI Health Prediction
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="text-6xl">
+                        {vehiclePrediction.data.status === "Critical"
+                          ? "🚨"
+                          : vehiclePrediction.data.status === "Due"
+                          ? "⚠️"
+                          : "✅"}
+                      </div>
+                      <div>
+                        <h3 className="text-3xl font-bold text-white mb-2">
+                          🤖 AI Health Prediction
+                        </h3>
+                        <p className="text-white/60">
+                          Click to view detailed AI analysis and recommendations
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
                       <span
-                        className={`px-4 py-2 rounded-full text-lg ${
+                        className={`px-6 py-3 rounded-full text-lg font-bold ${
                           vehiclePrediction.data.status === "Critical"
                             ? "bg-red-500/20 text-red-400 border border-red-500/30"
                             : vehiclePrediction.data.status === "Due"
@@ -1356,145 +1372,39 @@ const DriverDashboard = () => {
                       >
                         {vehiclePrediction.data.status}
                       </span>
-                    </h3>
-                    <div className="text-6xl">
-                      {vehiclePrediction.data.status === "Critical"
-                        ? "🚨"
-                        : vehiclePrediction.data.status === "Due"
-                        ? "⚠️"
-                        : "✅"}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
-                    <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-xl p-4">
-                      <p className="text-white/60 text-sm mb-2">Health Score</p>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full ${
-                              vehiclePrediction.data.health_score >= 80
-                                ? "bg-green-500"
-                                : vehiclePrediction.data.health_score >= 60
-                                ? "bg-yellow-500"
-                                : "bg-red-500"
-                            }`}
-                            style={{
-                              width: `${vehiclePrediction.data.health_score}%`,
-                            }}
-                          />
-                        </div>
-                        <span
-                          className={`text-2xl font-bold ${
-                            vehiclePrediction.data.health_score >= 80
-                              ? "text-green-400"
-                              : vehiclePrediction.data.health_score >= 60
-                              ? "text-yellow-400"
-                              : "text-red-400"
-                          }`}
-                        >
-                          {vehiclePrediction.data.health_score}%
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-xl p-4">
-                      <p className="text-white/60 text-sm mb-2">Next Service</p>
-                      <p className="text-xl font-bold text-white">
-                        {new Date(
-                          vehiclePrediction.data.next_maintenance_date
-                        ).toLocaleDateString()}
-                      </p>
-                    </div>
-
-                    <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-xl p-4">
-                      <p className="text-white/60 text-sm mb-2">
-                        Days Remaining
-                      </p>
-                      <p
-                        className={`text-2xl font-bold ${
-                          vehiclePrediction.data.days_until_maintenance <= 3
-                            ? "text-red-400"
-                            : vehiclePrediction.data.days_until_maintenance <=
-                              14
-                            ? "text-orange-400"
-                            : "text-green-400"
-                        }`}
+                      <svg
+                        className="w-8 h-8 text-white/60"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
                       >
-                        {vehiclePrediction.data.days_until_maintenance} days
-                      </p>
-                    </div>
-
-                    <div className="backdrop-blur-sm bg-white/10 border border-white/20 rounded-xl p-4">
-                      <p className="text-white/60 text-sm mb-2">
-                        ML Confidence
-                      </p>
-                      <p className="text-2xl font-bold text-cyan-400">
-                        {vehiclePrediction.data.ml_confidence}%
-                      </p>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 5l7 7-7 7"
+                        />
+                      </svg>
                     </div>
                   </div>
-
-                  {/* Critical Issues Alert */}
-                  {vehiclePrediction.data.critical_issues &&
-                    vehiclePrediction.data.critical_issues.length > 0 && (
-                      <div className="bg-red-500/20 border border-red-500/40 rounded-xl p-4 mb-6">
-                        <h4 className="text-red-400 font-bold mb-2 flex items-center gap-2">
-                          🚨 {vehiclePrediction.data.critical_issues.length}{" "}
-                          Critical Issue
-                          {vehiclePrediction.data.critical_issues.length > 1
-                            ? "s"
-                            : ""}
-                        </h4>
-                        {vehiclePrediction.data.critical_issues
-                          .slice(0, 2)
-                          .map((issue, idx) => (
-                            <p key={idx} className="text-red-300 text-sm">
-                              • {issue.component}: {issue.issue} -{" "}
-                              {issue.action}
-                            </p>
-                          ))}
-                        {vehiclePrediction.data.critical_issues.length > 2 && (
-                          <p className="text-red-400 text-xs mt-2">
-                            +{vehiclePrediction.data.critical_issues.length - 2}{" "}
-                            more issues
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                  {/* Warnings */}
-                  {vehiclePrediction.data.warnings &&
-                    vehiclePrediction.data.warnings.length > 0 && (
-                      <div className="bg-orange-500/20 border border-orange-500/40 rounded-xl p-4 mb-6">
-                        <h4 className="text-orange-400 font-bold mb-2 flex items-center gap-2">
-                          ⚠️ {vehiclePrediction.data.warnings.length} Warning
-                          {vehiclePrediction.data.warnings.length > 1
-                            ? "s"
-                            : ""}
-                        </h4>
-                        {vehiclePrediction.data.warnings
-                          .slice(0, 2)
-                          .map((warning, idx) => (
-                            <p key={idx} className="text-orange-300 text-sm">
-                              • {warning.component}: {warning.issue}
-                            </p>
-                          ))}
-                      </div>
-                    )}
-
-                  <div className="text-center">
-                    <p className="text-white/60 text-sm">
-                      Click for detailed AI analysis and recommendations →
-                    </p>
-                  </div>
+                </motion.button>
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-8 text-center"
+                >
+                  <div className="text-6xl mb-4">🔄</div>
+                  <p className="text-white/60">
+                    Loading AI health prediction...
+                  </p>
                 </motion.div>
               )}
 
               {/* Original Vehicle Health Card */}
               <motion.div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-6">
                 <h2 className="text-2xl font-bold text-white mb-6">
-                  📊 Real-Time Metrics
+                  Real-Time Metrics
                 </h2>
                 <VehicleHealthCard vehicle={assignedVehicle} />
               </motion.div>

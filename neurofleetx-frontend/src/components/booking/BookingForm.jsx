@@ -179,15 +179,23 @@ export default function BookingForm({ onBookingCreated }) {
 
     try {
       setLoadingRecs(true);
-      const params = {
-        customerId: state.user?.id || localStorage.getItem("userId"),
-        vehicleType: form.vehicleType || null,
-        isEv: form.isEv,
-        start: new Date(form.startTime).toISOString(),
-        end: new Date(form.endTime).toISOString(),
-        limit: 5,
-      };
-      const res = await bookingApi.getRecommendations(params);
+
+      const customerId = state.user?.id || localStorage.getItem("userId");
+      const vehicleType = form.vehicleType || null;
+      const isEv = form.isEv;
+      const start = new Date(form.startTime).toISOString();
+      const end = new Date(form.endTime).toISOString();
+      const limit = 5;
+
+      const res = await bookingApi.getRecommendations(
+        customerId,
+        vehicleType,
+        isEv,
+        start,
+        end,
+        limit
+      );
+
       setRecs(res.data || res);
     } catch (err) {
       console.error(err);

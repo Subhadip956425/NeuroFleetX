@@ -1,156 +1,182 @@
-import React from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState } from "react";
+import { motion } from "framer-motion";
 import maintenanceApi from "../../api/maintenanceApi";
-import { useGlobalState, actionTypes } from "../../context/GlobalState";
 
 const AlertsTable = ({ tickets = [], onTicketUpdated }) => {
-  const { dispatch } = useGlobalState();
+  const [loading, setLoading] = useState(null);
 
-  const handleResolve = async (ticketId) => {
-    if (!window.confirm("Mark this ticket as resolved?")) return;
-
+  const handleResolveTicket = async (ticketId) => {
     try {
-      const res = await maintenanceApi.resolveTicket(ticketId);
-      const resolvedTicket = res.data || res;
+      setLoading(ticketId);
+      console.log("🔧 Resolving ticket:", ticketId);
 
-      // ✅ Immediately remove the resolved ticket from local list
+      const response = await maintenanceApi.resolveTicket(ticketId);
+      console.log("✅ Ticket resolved:", response);
+
+      // Notify parent component
       if (onTicketUpdated) {
-        onTicketUpdated({ ...resolvedTicket, status: "RESOLVED" });
+        onTicketUpdated({ ...response, status: "RESOLVED" });
       }
 
-      // ✅ Update global state
-      dispatch({
-        type: actionTypes.UPDATE_TICKET,
-        payload: { ...resolvedTicket, status: "RESOLVED" },
-      });
-
       alert("Ticket resolved successfully!");
-    } catch (err) {
-      console.error("Error resolving ticket:", err);
-      alert("Failed to resolve ticket");
+    } catch (error) {
+      console.error("❌ Error resolving ticket:", error);
+      alert("Failed to resolve ticket: " + error.message);
+    } finally {
+      setLoading(null);
     }
   };
 
-  // Filter only open tickets
-  const openTickets = tickets
-    .filter((t) => t.status === "OPEN" || !t.status)
-    .sort((a, b) => {
-      const dateA = new Date(a.createdAt || 0).getTime();
-      const dateB = new Date(b.createdAt || 0).getTime();
-      return dateB - dateA; // Descending order (newest first)
-    });
+  // ✅ ALWAYS filter out AUTO-generated tickets - only show MANUAL tickets
+  const manualTickets = tickets.filter((ticket) => {
+    const desc = ticket.description || "";
+    // Only include tickets that DON'T start with "AUTO:"
+    return !desc.startsWith("AUTO:");
+  });
 
-  if (openTickets.length === 0) {
+  if (!manualTickets || manualTickets.length === 0) {
     return (
-      <div>
-        <h3 className="text-xl font-bold text-white mb-4">Active Alerts</h3>
-        <div className="text-center py-12">
-          <div className="text-6xl mb-4">✅</div>
-          <p className="text-white/60 text-sm">No active alerts</p>
-          <p className="text-white/40 text-xs mt-1">All systems operational</p>
-        </div>
+      <div className="text-center py-8">
+        <div className="text-5xl mb-4">✅</div>
+        <p className="text-white/60">No manual tickets</p>
+        <p className="text-white/40 text-sm mt-2">
+          All manual maintenance tickets resolved
+        </p>
       </div>
     );
   }
 
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xl font-bold text-white">Active Alerts</h3>
-        <span className="px-3 py-1 bg-red-500/20 text-red-400 rounded-full text-xs font-semibold">
-          {openTickets.length} Open
-        </span>
-      </div>
+  // Sort tickets by severity
+  const sortedTickets = [...manualTickets].sort((a, b) => {
+    const severityOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+    return (severityOrder[b.severity] || 0) - (severityOrder[a.severity] || 0);
+  });
 
-      <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-        <AnimatePresence mode="popLayout">
-          {openTickets.map((ticket, index) => (
-            <motion.div
-              key={ticket.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 100, transition: { duration: 0.3 } }}
-              transition={{ delay: index * 0.05 }}
-              whileHover={{ x: 5 }}
-              layout
-              className={`backdrop-blur-sm bg-white/5 border rounded-xl p-4 transition-all ${
-                ticket.severity === "HIGH"
-                  ? "border-red-500/50 hover:border-red-500/80"
-                  : ticket.severity === "MEDIUM"
-                  ? "border-yellow-500/50 hover:border-yellow-500/80"
-                  : "border-white/10 hover:border-white/20"
+  return (
+    <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar">
+      {sortedTickets.slice(0, 10).map((ticket, index) => (
+        <motion.div
+          key={ticket.id}
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: index * 0.05 }}
+          className={`backdrop-blur-sm border rounded-xl p-4 hover:border-white/30 transition-all ${
+            ticket.severity === "HIGH"
+              ? "bg-red-500/10 border-red-500/30"
+              : ticket.severity === "MEDIUM"
+              ? "bg-yellow-500/10 border-yellow-500/30"
+              : "bg-blue-500/10 border-blue-500/30"
+          }`}
+        >
+          {/* Header */}
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <h4 className="text-white font-bold text-sm line-clamp-1">
+                  {ticket.issue || ticket.description || "Maintenance Issue"}
+                </h4>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                    ticket.severity === "HIGH"
+                      ? "bg-red-500/20 text-red-400"
+                      : ticket.severity === "MEDIUM"
+                      ? "bg-yellow-500/20 text-yellow-400"
+                      : "bg-blue-500/20 text-blue-400"
+                  }`}
+                >
+                  {ticket.severity || "MEDIUM"}
+                </span>
+              </div>
+              <p className="text-white/60 text-xs">
+                Ticket #{ticket.id} • Vehicle #{ticket.vehicleId}
+              </p>
+            </div>
+          </div>
+
+          {/* Description */}
+          {ticket.description && (
+            <p className="text-white/70 text-xs mb-3 line-clamp-2">
+              {ticket.description}
+            </p>
+          )}
+
+          {/* Status and Date */}
+          <div className="flex items-center justify-between mb-3 text-xs text-white/50">
+            <span>
+              {ticket.createdAt
+                ? new Date(ticket.createdAt).toLocaleDateString()
+                : "Unknown date"}
+            </span>
+            <span
+              className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                ticket.status === "OPEN"
+                  ? "bg-yellow-500/20 text-yellow-400"
+                  : ticket.status === "IN_PROGRESS"
+                  ? "bg-blue-500/20 text-blue-400"
+                  : "bg-green-500/20 text-green-400"
               }`}
             >
-              {/* Header */}
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-white font-bold text-sm">
-                      🚗 Vehicle #{ticket.vehicleId}
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        ticket.severity === "HIGH"
-                          ? "bg-red-500/20 text-red-400"
-                          : ticket.severity === "MEDIUM"
-                          ? "bg-yellow-500/20 text-yellow-400"
-                          : "bg-blue-500/20 text-blue-400"
-                      }`}
-                    >
-                      {ticket.severity || "LOW"}
-                    </span>
-                  </div>
-                  <p className="text-white/60 text-xs">Ticket #{ticket.id}</p>
-                </div>
-              </div>
+              {ticket.status || "OPEN"}
+            </span>
+          </div>
 
-              {/* Issue Description */}
-              <div className="mb-3">
-                <p className="text-white/80 text-sm mb-1">
-                  <span className="text-white/40">Issue: </span>
-                  {ticket.issue || ticket.description || "No description"}
-                </p>
-                {ticket.notes && (
-                  <p className="text-white/60 text-xs mt-1">
-                    <span className="text-white/40">Notes: </span>
-                    {ticket.notes}
-                  </p>
-                )}
-              </div>
-
-              {/* Metadata */}
-              <div className="flex items-center justify-between text-xs text-white/40 mb-3 pb-3 border-b border-white/10">
-                <span>
-                  📅{" "}
-                  {new Date(
-                    ticket.createdAt || Date.now()
-                  ).toLocaleDateString()}
+          {/* Action Button */}
+          {ticket.status === "OPEN" && (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => handleResolveTicket(ticket.id)}
+              disabled={loading === ticket.id}
+              className={`w-full px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                loading === ticket.id
+                  ? "bg-white/10 text-white/50 cursor-not-allowed"
+                  : "bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30"
+              }`}
+            >
+              {loading === ticket.id ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-green-400"></div>
+                  Resolving...
                 </span>
-                {ticket.reportedBy && (
-                  <span>
-                    👤{" "}
-                    {typeof ticket.reportedBy === "object"
-                      ? ticket.reportedBy.fullName ||
-                        ticket.reportedBy.email ||
-                        "User"
-                      : ticket.reportedBy}
-                  </span>
-                )}
-              </div>
+              ) : (
+                "✓ Mark as Resolved"
+              )}
+            </motion.button>
+          )}
 
-              {/* Action Button */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => handleResolve(ticket.id)}
-                className="w-full px-4 py-2 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all text-sm"
-              >
-                ✅ Mark Resolved
-              </motion.button>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
+          {ticket.status === "IN_PROGRESS" && (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => handleResolveTicket(ticket.id)}
+              disabled={loading === ticket.id}
+              className={`w-full px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                loading === ticket.id
+                  ? "bg-white/10 text-white/50 cursor-not-allowed"
+                  : "bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30"
+              }`}
+            >
+              {loading === ticket.id ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-blue-400"></div>
+                  Completing...
+                </span>
+              ) : (
+                "✓ Complete"
+              )}
+            </motion.button>
+          )}
+        </motion.div>
+      ))}
+
+      {/* Show more indicator */}
+      {manualTickets.length > 10 && (
+        <div className="text-center pt-2">
+          <p className="text-white/40 text-xs">
+            +{manualTickets.length - 10} more tickets
+          </p>
+        </div>
+      )}
 
       {/* Custom Scrollbar Styles */}
       <style jsx>{`

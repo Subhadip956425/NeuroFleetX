@@ -6,40 +6,40 @@ const FleetHealthOverview = ({ analytics }) => {
     return null;
   }
 
-  const healthyPercent = Math.round(
-    (analytics.healthy / analytics.total_vehicles) * 100
-  );
-  const duePercent = Math.round(
-    (analytics.due / analytics.total_vehicles) * 100
-  );
-  const criticalPercent = Math.round(
-    (analytics.critical / analytics.total_vehicles) * 100
-  );
+  const total = analytics.total_vehicles || 0;
+  const healthy = analytics.healthy || 0;
+  const due = analytics.due || analytics.needs_maintenance || 0; // ✅ Fallback
+  const critical = analytics.critical || 0;
+
+  // ✅ Prevent division by zero
+  const healthyPercent = total > 0 ? Math.round((healthy / total) * 100) : 0;
+  const duePercent = total > 0 ? Math.round((due / total) * 100) : 0;
+  const criticalPercent = total > 0 ? Math.round((critical / total) * 100) : 0;
 
   const cards = [
     {
       label: "Total Vehicles",
-      value: analytics.total_vehicles,
+      value: total,
       icon: "🚗",
       color: "from-blue-500/20 to-cyan-500/10",
     },
     {
       label: "Healthy",
-      value: analytics.healthy,
+      value: healthy,
       icon: "✅",
       color: "from-green-500/20 to-emerald-500/10",
       subtext: `${healthyPercent}%`,
     },
     {
       label: "Maintenance Due",
-      value: analytics.due,
+      value: due,
       icon: "⏰",
       color: "from-yellow-500/20 to-orange-500/10",
       subtext: `${duePercent}%`,
     },
     {
       label: "Critical",
-      value: analytics.critical,
+      value: critical,
       icon: "🚨",
       color: "from-red-500/20 to-pink-500/10",
       subtext: `${criticalPercent}%`,

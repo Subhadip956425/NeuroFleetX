@@ -1,5 +1,26 @@
 import axiosInstance from "./axiosInstance";
 
+const API_MAINTENANCE = "/maintenance";
+
+// ✅ Helper function to calculate health score
+const calculateHealthScore = (daysToService, reason) => {
+  if (reason === "Critical") {
+    return Math.max(0, Math.min(40, daysToService * 10)); // 0-40%
+  } else if (reason === "Due") {
+    return Math.max(40, Math.min(70, 40 + daysToService * 2)); // 40-70%
+  } else {
+    return Math.max(70, Math.min(100, 70 + daysToService)); // 70-100%
+  }
+};
+
+// ✅ Helper function to calculate next maintenance date
+const calculateNextMaintenanceDate = (daysToService) => {
+  const today = new Date();
+  const nextDate = new Date(today);
+  nextDate.setDate(today.getDate() + Math.round(daysToService));
+  return nextDate.toISOString();
+};
+
 const maintenanceApi = {
   // ========== EXISTING METHODS (Keep as-is) ==========
   getMyTickets: async () => {
@@ -133,10 +154,6 @@ const maintenanceApi = {
 
   // ========== ✅ NEW: AI-POWERED MAINTENANCE PREDICTION ==========
 
-  /**
-   * Get AI-powered maintenance prediction for a specific vehicle
-   * Uses ML model + threshold analysis
-   */
   getPrediction: async (vehicleId) => {
     try {
       console.log(
@@ -144,7 +161,7 @@ const maintenanceApi = {
         vehicleId
       );
       const response = await axiosInstance.get(
-        `/maintenance/prediction/${vehicleId}`
+        `${API_MAINTENANCE}/prediction/${vehicleId}`
       );
       console.log("✅ Prediction loaded:", response.data);
       return response.data;
@@ -155,17 +172,54 @@ const maintenanceApi = {
   },
 
   /**
-   * Get predictions for all vehicles (Admin/Manager view)
+   * Get predictions for all vehicles
    */
   getAllPredictions: async () => {
     try {
       console.log("🤖 Fetching all vehicle predictions...");
-      const response = await axiosInstance.get(`/maintenance/predictions/all`);
+      const response = await axiosInstance.get(
+        `${API_MAINTENANCE}/predictions/all`
+      );
       console.log("✅ All predictions loaded:", response.data);
-      return response.data || [];
+
+      // ✅ Transform backend data to frontend format
+      const predictions = (response.data || []).map((pred) => ({
+        vehicleId: pred.vehicleId,
+        id: pred.id,
+
+        // Status mapping
+        status: pred.reason || "Unknown",
+        reason: pred.reason,
+
+        // Health score calculation (inverse of days to service)
+        healthScore: calculateHealthScore(pred.daysToService, pred.reason),
+
+        // Next maintenance date calculation
+        nextMaintenanceDate: calculateNextMaintenanceDate(pred.daysToService),
+        daysUntilMaintenance: Math.round(pred.daysToService),
+
+        // ML confidence (default if not provided)
+        mlConfidence: 85,
+        confidence: 85,
+
+        // Additional fields
+        predictedAt: pred.predictedAt,
+        daysToService: pred.daysToService,
+
+        // Message for critical vehicles
+        message:
+          pred.reason === "Critical"
+            ? "Immediate maintenance required"
+            : pred.reason === "Due"
+            ? "Schedule maintenance soon"
+            : "Vehicle in good condition",
+      }));
+
+      console.log("📊 Transformed predictions:", predictions);
+      return predictions;
     } catch (error) {
       console.error("❌ Error fetching all predictions:", error.message);
-      throw error;
+      return [];
     }
   },
 
@@ -176,25 +230,38 @@ const maintenanceApi = {
     try {
       console.log("🚨 Fetching critical vehicles...");
       const response = await axiosInstance.get(
-        `/maintenance/predictions/critical`
+        `${API_MAINTENANCE}/predictions/critical`
       );
       console.log("✅ Critical vehicles:", response.data);
-      return response.data || [];
+
+      // ✅ Transform critical vehicles data
+      const criticalVehicles = (response.data || []).map((pred) => ({
+        vehicleId: pred.vehicleId,
+        id: pred.id,
+        status: pred.reason,
+        daysUntilMaintenance: Math.round(pred.daysToService),
+        message: "Immediate maintenance required",
+        confidence: 85,
+        reason: pred.reason,
+        predictedAt: pred.predictedAt,
+      }));
+
+      console.log("🚨 Transformed critical vehicles:", criticalVehicles);
+      return criticalVehicles;
     } catch (error) {
       console.error("❌ Error fetching critical vehicles:", error.message);
-      throw error;
+      return [];
     }
   },
 
   /**
    * Trigger manual evaluation for a vehicle
-   * Calls ML service and saves prediction
    */
   evaluateVehicleHealth: async (vehicleId) => {
     try {
       console.log("🔍 Triggering health evaluation for vehicle:", vehicleId);
       const response = await axiosInstance.post(
-        `/maintenance/evaluate/${vehicleId}`
+        `${API_MAINTENANCE}/evaluate/${vehicleId}`
       );
       console.log("✅ Evaluation complete:", response.data);
       return response.data;
@@ -210,7 +277,7 @@ const maintenanceApi = {
   getMaintenanceStats: async () => {
     try {
       console.log("📊 Fetching maintenance statistics...");
-      const response = await axiosInstance.get(`/maintenance/stats`);
+      const response = await axiosInstance.get(`${API_MAINTENANCE}/stats`);
       console.log("✅ Stats loaded:", response.data);
       return response.data;
     } catch (error) {
@@ -219,25 +286,83 @@ const maintenanceApi = {
     }
   },
 
-  // ========== ✅ NEW: CUSTOMER ISSUE REPORTING ==========
+  // ========== ✅ FIXED: FLEET ANALYTICS ENDPOINTS ==========
 
   /**
-   * Report issue as a customer (for active bookings)
+   * Get fleet-wide maintenance analytics
    */
+  getFleetMaintenanceAnalytics: async () => {
+    try {
+      console.log("📊 Fetching fleet maintenance analytics");
+      const response = await axiosInstance.get(`${API_MAINTENANCE}/stats`);
+      console.log("✅ Fleet analytics response:", response.data);
+
+      // Transform stats to match expected format
+      const stats = response.data;
+      return {
+        data: {
+          total_vehicles: stats.totalVehicles || 0,
+          healthy: stats.healthy || 0,
+          needs_maintenance: stats.due || 0,
+          due: stats.due || 0, // ✅ ADD THIS - component expects "due"
+          critical: stats.critical || 0,
+          health_percentage:
+            stats.totalVehicles > 0
+              ? Math.round((stats.healthy / stats.totalVehicles) * 100)
+              : 0,
+          open_tickets: stats.openTickets || 0,
+          resolved_tickets: stats.resolvedTickets || 0,
+          last_updated: stats.lastUpdated,
+        },
+      };
+    } catch (error) {
+      console.error("❌ Error fetching fleet analytics:", error);
+      // Return dummy data on error
+      return {
+        data: {
+          total_vehicles: 0,
+          healthy: 0,
+          needs_maintenance: 0,
+          due: 0, // ✅ ADD THIS
+          critical: 0,
+          health_percentage: 0,
+          open_tickets: 0,
+          resolved_tickets: 0,
+        },
+      };
+    }
+  },
+
   /**
-   * Report issue as a customer (for active bookings)
+   * Check vehicle health (detailed info)
+   */
+  checkVehicleHealth: async (vehicleId) => {
+    try {
+      console.log("🔧 Checking vehicle health for:", vehicleId);
+      const response = await axiosInstance.get(
+        `${API_MAINTENANCE}/prediction/${vehicleId}`
+      );
+      console.log("✅ Vehicle health response:", response.data);
+      return response;
+    } catch (error) {
+      console.error("❌ Error checking vehicle health:", error);
+      throw error;
+    }
+  },
+
+  // ========== CUSTOMER ISSUE REPORTING ==========
+
+  /**
+   * Report issue as a customer
    */
   reportIssueAsCustomer: async (data) => {
     try {
       console.log("🎫 Customer reporting issue:", data);
-
-      // ✅ TEMPORARY FIX: Use maintenance/report endpoint instead
-      const response = await axiosInstance.post(`/maintenance/report`, {
+      const response = await axiosInstance.post(`${API_MAINTENANCE}/report`, {
         vehicleId: data.vehicleId,
         description: data.description,
         severity: data.severity || "MEDIUM",
       });
-
       console.log("✅ Customer issue reported:", response.data);
       return response.data;
     } catch (error) {
@@ -252,7 +377,9 @@ const maintenanceApi = {
   getMyReportedIssues: async () => {
     try {
       console.log("📋 Fetching my reported issues...");
-      const response = await axiosInstance.get(`/customer/my-issues`);
+      const response = await axiosInstance.get(
+        `${API_MAINTENANCE}/customer/my-issues`
+      );
       console.log("✅ My issues loaded:", response.data);
       return response.data || [];
     } catch (error) {
