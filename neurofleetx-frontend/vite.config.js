@@ -12,13 +12,13 @@ export default defineConfig({
     proxy: {
       // ✅ Proxy all websocket & SockJS calls to Spring Boot
       "/ws-telemetry": {
-        target: "http://localhost:8080",
+        target: "https://neurofleetx.onrender.com",
         changeOrigin: true,
         ws: true, // WebSocket proxy support
       },
       // ✅ Optional: if you also call REST APIs
       "/api": {
-        target: "http://localhost:8080",
+        target: "https://neurofleetx.onrender.com",
         changeOrigin: true,
       },
     },

@@ -8,7 +8,7 @@ export function connectRouteSocket(onMessage) {
   if (stompClient && stompClient.active) return;
 
   const socket = new SockJS(
-    `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"}/ws`
+    `${import.meta.env.VITE_API_BASE_URL || "https://neurofleetx.onrender.com"}/ws`
   );
   stompClient = new Client({
     webSocketFactory: () => socket,

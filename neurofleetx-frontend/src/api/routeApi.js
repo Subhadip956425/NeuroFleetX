@@ -86,7 +86,7 @@ const routeApi = {
       console.log("🤖 routeApi: Calling AI ETA prediction:", routeData);
 
       const response = await axiosInstance.post(
-        "http://localhost:5001/api/live-tracking/predict-eta",
+        "https://neurofleetx-ml-latest.onrender.com/api/live-tracking/predict-eta",
         {
           distanceKm: routeData.distanceKm,
           avgSpeed: routeData.avgSpeed || 50,

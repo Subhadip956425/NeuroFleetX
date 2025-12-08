@@ -24,7 +24,7 @@ const Dashboard = () => {
 
       try {
         const res = await axios.get(
-          `http://localhost:8080/api/users/${userId}`,
+          `https://neurofleetx.onrender.com/api/users/${userId}`,
           {
             headers: { Authorization: `Bearer ${token}` },
           }

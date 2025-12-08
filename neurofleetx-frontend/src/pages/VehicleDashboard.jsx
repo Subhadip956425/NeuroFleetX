@@ -75,7 +75,7 @@ export default function VehicleDashboard() {
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
 
-  const API_URL = "http://localhost:8080/api/vehicles";
+  const API_URL = "https://neurofleetx.onrender.com/api/vehicles";
 
   // Particle animation on canvas
   useEffect(() => {

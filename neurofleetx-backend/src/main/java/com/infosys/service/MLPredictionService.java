@@ -22,7 +22,7 @@ public class MLPredictionService {
     @Autowired(required = false)
     private RestTemplate mlServiceRestTemplate;
 
-    @Value("${ml.service.url:http://localhost:5001/api}")
+    @Value("${ml.service.url:https://neurofleetx-ml-latest.onrender.com/api}")
     private String mlServiceUrl;
 
     /**

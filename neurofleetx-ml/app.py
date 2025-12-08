@@ -912,19 +912,19 @@ def internal_error(error):
     return jsonify({"error": "Internal server error", "status": "error"}), 500
 
 
-if __name__ == "__main__":
-    logger.info("\n" + "="*70)
-    logger.info("🚀 NeuroFleetX ML Server Starting...")
-    logger.info("="*70)
-    logger.info("📍 Server: http://localhost:5001")
-    logger.info("📍 Health Check: http://localhost:5001/api/health")
-    logger.info("\n✅ API Endpoints:")
-    logger.info("   🆕 POST /api/live-tracking/predict-eta")
-    logger.info("   1️⃣  POST /api/routes/predict-eta")
-    logger.info("   2️⃣  POST /api/recommendations/vehicles")
-    logger.info("   3️⃣  GET /api/recommendations/maintenance/<vehicle_id>")
-    logger.info("   4️⃣  GET /api/recommendations/maintenance/critical-vehicles")
-    logger.info("   5️⃣  GET /api/recommendations/maintenance/fleet-analytics")
-    logger.info("="*70 + "\n")
+# if __name__ == "__main__":
+#     logger.info("\n" + "="*70)
+#     logger.info("🚀 NeuroFleetX ML Server Starting...")
+#     logger.info("="*70)
+#     logger.info("📍 Server: http://localhost:5001")
+#     logger.info("📍 Health Check: http://localhost:5001/api/health")
+#     logger.info("\n✅ API Endpoints:")
+#     logger.info("   🆕 POST /api/live-tracking/predict-eta")
+#     logger.info("   1️⃣  POST /api/routes/predict-eta")
+#     logger.info("   2️⃣  POST /api/recommendations/vehicles")
+#     logger.info("   3️⃣  GET /api/recommendations/maintenance/<vehicle_id>")
+#     logger.info("   4️⃣  GET /api/recommendations/maintenance/critical-vehicles")
+#     logger.info("   5️⃣  GET /api/recommendations/maintenance/fleet-analytics")
+#     logger.info("="*70 + "\n")
     
-    app.run(host="0.0.0.0", port=5001, debug=True)
+#     app.run(host="0.0.0.0", port=5001, debug=False)

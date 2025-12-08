@@ -5,7 +5,7 @@ let stompClient = null;
 
 export const connectBookingSocket = (onMessage) => {
   const socket = new SockJS(
-    `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"}/ws`
+    `${import.meta.env.VITE_API_BASE_URL || "https://neurofleetx.onrender.com"}/ws`
   );
   stompClient = Stomp.over(socket);
   stompClient.connect({}, () => {

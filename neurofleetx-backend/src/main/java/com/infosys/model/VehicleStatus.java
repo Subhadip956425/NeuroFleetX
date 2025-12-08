@@ -36,9 +36,11 @@ public class VehicleStatus {
     public enum Status {
         AVAILABLE,
         IN_USE,
+        OFFLINE,
         MAINTENANCE,
         RESERVED,
-        INACTIVE
+        INACTIVE,
+        NEEDS_MAINTENANCE
     }
 
     public VehicleStatus(Long id, String name) {
