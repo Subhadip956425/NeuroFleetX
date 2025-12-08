@@ -39,7 +39,7 @@ public class UserService {
     @Value("${password.reset.token.expiry:3600000}") // Default 1 hour
     private Long tokenExpiryMs;
 
-    @Value("${app.url:http://localhost:5173}")
+    @Value("${app.url:https://neuro-fleet-x.vercel.app/}")
     private String appUrl;
 
     /**

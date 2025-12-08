@@ -21,6 +21,13 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (
+      error.config?.url?.includes("/auth/login") ||
+      error.config?.url?.includes("/auth/register")
+    ) {
+      return Promise.reject(error);
+    }
+    
     if (error.response?.status === 401) {
       // Token expired - redirect to login
       localStorage.removeItem("jwtToken");
