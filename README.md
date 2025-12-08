@@ -5,6 +5,12 @@ Follow these steps to set it up on your system.
 
 ---
 
+## 🔗 Frontend Live Link  
+The deployed frontend is available here:  
+**https://neuro-fleet-x.vercel.app/**  
+
+---
+
 ## 1️⃣ Prerequisites
 - Install **Java 17+**  
 - Install **Maven** (or use IntelliJ/VS Code with Maven support)  
