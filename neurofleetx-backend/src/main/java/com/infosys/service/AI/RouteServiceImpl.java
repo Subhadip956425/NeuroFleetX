@@ -38,7 +38,7 @@ public class RouteServiceImpl implements RouteService {
     private SimpMessagingTemplate messagingTemplate; // Injected for WebSocket push
 
 
-    private static final String PYTHON_URL = "http://localhost:5001/predict-eta";
+    private static final String PYTHON_URL = "https://neurofleetx-ml-latest.onrender.com/predict-eta";
 
     @Override
     public List<Route> getAllRoutes() {

@@ -1,7 +1,7 @@
 import axios from "axios";
 import axiosInstance from "./axiosInstance";
 
-const API_URL = "http://localhost:8080/api/auth";
+const API_URL = "https://neurofleetx.onrender.com/api/auth";
 
 export const registerUser = (data) => axios.post(`${API_URL}/register`, data);
 

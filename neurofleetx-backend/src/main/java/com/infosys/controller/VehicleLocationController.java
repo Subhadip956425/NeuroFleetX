@@ -25,7 +25,7 @@ public class VehicleLocationController {
 
     private static final Logger logger = LoggerFactory.getLogger(VehicleLocationController.class);
     private static final Random random = new Random();
-    private static final String ML_SERVICE_URL = "http://localhost:5001";
+    private static final String ML_SERVICE_URL = "https://neurofleetx-ml-latest.onrender.com";
 
     @Autowired
     private VehicleRepository vehicleRepository;
