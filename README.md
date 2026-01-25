@@ -1,7 +1,7 @@
 echo "# NeuroFleetX - Backend Setup Guide
 
 This backend is built with **Spring Boot + MySQL**.  
-Follow these steps to set it up on your system.
+Follow these steps carefully to set it up on your local system.
 
 ---
 
